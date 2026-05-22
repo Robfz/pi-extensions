@@ -1,70 +1,81 @@
 # pi-extensions
 
-Canonical home for my custom extensions for the [pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent).
+Canonical home for my customizations to the [pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent): extensions, skills, themes, and prompt templates.
 
-pi loads extensions from `~/.pi/agent/extensions/`. This repo keeps the real source under version control, and each extension is symlinked from `~/.pi/agent/extensions/<name>.ts` into the matching file under `extensions/` here.
+pi loads each of these from a directory under `~/.pi/agent/`. This repo keeps the real source under version control; everything in `~/.pi/agent/{extensions,skills,themes,prompts}/` should be a symlink into the matching directory here.
 
 ## Repo layout
 
 ```
 .
-├── extensions/         # one .ts file per extension (flat layout for now)
+├── extensions/      # .ts extensions      → ~/.pi/agent/extensions/
 │   └── folder-branch.ts
-├── package.json        # devDeps only: @earendil-works/pi-coding-agent for types
-├── tsconfig.json       # editor-only; pi loads .ts directly, no build step
+├── skills/          # Agent Skills        → ~/.pi/agent/skills/
+├── themes/          # .json TUI themes    → ~/.pi/agent/themes/
+├── prompts/         # .md prompt templates → ~/.pi/agent/prompts/
+├── scripts/         # link.sh / doctor.sh (planned)
+├── package.json     # devDeps only: @earendil-works/pi-coding-agent for types
+├── tsconfig.json    # editor-only; pi loads .ts directly, no build step
 ├── README.md
 └── TODO.md
 ```
 
-Flat layout is fine while each extension is a single file. Promote any extension to its own directory (`extensions/<name>/index.ts`) the moment it gains a second file or wants its own README.
+Each top-level directory has its own short README with format and linking specifics.
 
-## How an extension is wired up
+Flat layout inside each directory is fine while every entry is a single file. Promote an extension or skill to its own directory the moment it gains a second file or wants its own README.
 
-Pi discovers extensions by scanning `~/.pi/agent/extensions/`. We keep that folder pointing into this repo via per-file symlinks, so:
+## How things are wired up
 
-- editing `extensions/<name>.ts` in this repo edits what pi loads;
+Pi discovers each kind of customization by scanning a fixed directory under `~/.pi/agent/`. We keep those directories pointing into this repo via per-entry symlinks, so:
+
+- editing a file in this repo edits what pi loads;
 - `git status` here is the source of truth;
-- nothing in `~/.pi/agent/extensions/` is "real" — every entry there should be a symlink into this repo.
+- nothing in `~/.pi/agent/{extensions,skills,themes,prompts}/` is "real" — every entry there should be a symlink into this repo.
 
-Verify with `ls -la ~/.pi/agent/extensions/`; every line should show `-> /Users/roberto/Dev/pi-extensions/extensions/...`.
+Verify with `ls -la ~/.pi/agent/<kind>/`; every line should show `-> /Users/roberto/Dev/pi-extensions/<kind>/...`.
 
-## Adding a new extension
+## Adding something new
 
-1. Create the file:
-   ```sh
-   $EDITOR extensions/<name>.ts
-   ```
-2. Symlink it into pi's extensions directory:
-   ```sh
-   ln -s "$PWD/extensions/<name>.ts" ~/.pi/agent/extensions/<name>.ts
-   ```
-3. Start a new pi session (or restart the current one) to pick it up.
+See the per-directory README for the exact command, but the shape is always the same:
+
+1. Create the file (or folder, for directory-form skills) under the matching top-level directory.
+2. Symlink it into `~/.pi/agent/<kind>/` with the same basename.
+3. Start a new pi session (or restart) to pick it up.
 4. Commit.
 
-## Editing an existing extension
+A `scripts/link.sh` is planned (see [TODO.md](TODO.md)) to do step 2 for every entry at once.
 
-Just edit the file in `extensions/`. The symlink means pi sees the change on next session start. No build, no install step required.
+## Editing
 
-If you want type-checking and autocomplete in your editor:
+Just edit the file in this repo. The symlink means pi sees the change on next session start. No build, no install step.
+
+If you want type-checking and autocomplete in your editor for extensions:
 
 ```sh
 npm install   # pulls @earendil-works/pi-coding-agent + typescript as devDeps
 ```
 
-## Removing an extension
+## Removing
 
 ```sh
-rm ~/.pi/agent/extensions/<name>.ts   # the symlink
-git rm extensions/<name>.ts
+rm ~/.pi/agent/<kind>/<name>.<ext>   # the symlink
+git rm <kind>/<name>.<ext>
 ```
 
 ## Conventions
+
+Extension-specific:
 
 - **One default export** — a function `(pi: ExtensionAPI) => void` that registers hooks.
 - **Top-of-file doc comment** describing what the extension does and which hooks it uses.
 - **Types from `@earendil-works/pi-coding-agent`** — never re-declare `ExtensionAPI` / `ExtensionContext`.
 - **Defensive I/O** — wrap shell calls and filesystem reads in try/catch with short timeouts; an extension that throws shouldn't break the session.
 - **Stable status keys** — when using `ctx.ui.setStatus`, pick a unique string and reuse it across updates.
+
+Repo-wide:
+
+- **Match upstream names** — repo directory names mirror the `~/.pi/agent/` paths (`extensions`, `skills`, `themes`, `prompts`) so the symlink mapping is 1:1.
+- **Per-directory README** — each top-level directory documents its own format and linking command. Keep the root README about cross-cutting concerns.
 
 ## Extensions
 
@@ -74,6 +85,10 @@ Footer status entry that shows the current folder name and, when inside a git re
 
 ## Reference
 
-- Pi extensions docs (locally installed):
-  `~/.asdf/installs/nodejs/24.15.0/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md`
-- Other pi customization surfaces worth knowing about: `skills.md`, `themes.md`, `prompt-templates.md`, `tui.md`, `sdk.md` in the same docs folder.
+Pi's docs are installed alongside the npm package, at:
+
+```
+~/.asdf/installs/nodejs/24.15.0/lib/node_modules/@earendil-works/pi-coding-agent/docs/
+```
+
+Most relevant: `extensions.md`, `skills.md`, `themes.md`, `prompt-templates.md`, plus `tui.md`, `rpc.md`, `sdk.md` for deeper APIs.

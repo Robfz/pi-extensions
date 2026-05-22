@@ -4,16 +4,16 @@ Living list of things to build, polish, or explore for this repo. Move items to 
 
 ## Repo plumbing
 
-- [ ] `scripts/link.sh` — idempotent script that walks `extensions/` and (re)creates the symlinks under `~/.pi/agent/extensions/`. Handy after a fresh clone or when adding several extensions at once.
-- [ ] `scripts/doctor.sh` — sanity check that every file under `extensions/` has a matching symlink in `~/.pi/agent/extensions/` and vice versa (flag orphans on either side).
+- [ ] `scripts/link.sh` — idempotent script that walks `extensions/`, `skills/`, `themes/`, `prompts/` and (re)creates the symlinks under the matching `~/.pi/agent/<kind>/`. Handy after a fresh clone or when adding several entries at once.
+- [ ] `scripts/doctor.sh` — sanity check that every entry in this repo has a matching symlink under `~/.pi/agent/`, and flag orphan symlinks (broken or pointing outside this repo).
 - [ ] Decide on a remote (GitHub? private?) and push.
 - [ ] CI: run `tsc --noEmit` on push so type regressions are caught even though pi doesn't need a build.
 - [ ] Pin `@earendil-works/pi-coding-agent` to the exact installed version in `package.json`, or auto-sync it from the globally installed one.
 
 ## Layout
 
-- [ ] Revisit the flat layout once we have 3+ extensions or one of them grows beyond a single file → move to `extensions/<name>/index.ts` with per-extension READMEs.
-- [ ] Consider sibling top-level folders for other pi customization surfaces (`skills/`, `themes/`, `prompt-templates/`) and a single `link.sh` that wires them all up. Read `docs/skills.md`, `docs/themes.md`, `docs/prompt-templates.md` before committing to a layout.
+- [x] Sibling top-level folders for the other pi customization surfaces (`skills/`, `themes/`, `prompts/`).
+- [ ] Revisit the flat layout inside `extensions/` once we have 3+ extensions or one grows beyond a single file → move to `extensions/<name>/index.ts` with per-extension READMEs.
 
 ## Extension ideas
 

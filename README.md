@@ -9,7 +9,7 @@ pi loads each of these from a directory under `~/.pi/agent/`. This repo keeps th
 ```
 .
 ├── extensions/      # .ts extensions      → ~/.pi/agent/extensions/
-│   └── folder-branch.ts
+│   └── status-bar.ts
 ├── skills/          # Agent Skills        → ~/.pi/agent/skills/
 ├── themes/          # .json TUI themes    → ~/.pi/agent/themes/
 ├── prompts/         # .md prompt templates → ~/.pi/agent/prompts/
@@ -79,9 +79,22 @@ Repo-wide:
 
 ## Extensions
 
-### `folder-branch`
+### `status-bar`
 
-Footer status entry that shows the current folder name and, when inside a git repo, the active branch. Refreshes on `session_start` and `turn_end` so branch switches (mine or the agent's) are reflected immediately.
+Replaces pi's default footer (via `ctx.ui.setFooter`) with a two-line layout:
+
+```
+<folder> <branch> <dirty-dot> <context-bar>
+<model> • <effort>                           ↑in ↓out Rread Wwrite $cost pct%/win
+```
+
+- **folder**: `basename(cwd)`
+- **dirty-dot**: green `●` clean, yellow `●` staged-only, red `●` unstaged/untracked; absent outside a git repo
+- **context-bar**: 5-cell `█`/`░` bar, colored by pi's thresholds (dim ≤70, warning >70, error >90)
+- **model**: `model.name` with leading `Claude ` stripped (e.g. `Claude Opus 4.7` → `Opus 4.7`)
+- Right-hand stats mirror pi's default footer, including `(sub)` on OAuth. The `(auto)` auto-compact flag is dropped because the extension API does not expose it.
+
+Refreshes the git dirty cache on `session_start` and `turn_end`; reacts to branch changes via `footerData.onBranchChange`.
 
 ## Reference
 

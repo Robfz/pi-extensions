@@ -15,6 +15,24 @@ Living list of things to build, polish, or explore for this repo. Move items to 
 - [x] Sibling top-level folders for the other pi customization surfaces (`skills/`, `themes/`, `prompts/`).
 - [ ] Revisit the flat layout inside `extensions/` once we have 3+ extensions or one grows beyond a single file → move to `extensions/<name>/index.ts` with per-extension READMEs.
 
+## Behavior tweaks I want
+
+Things about pi's out-of-the-box behavior I want to change. Each needs a quick spike to figure out the right mechanism (extension hook? setting? keybinding? prompt template?) before turning into a real task.
+
+- [ ] **`exit` actually exits pi.** Right now typing `exit` doesn't quit the session the way I expect. Figure out:
+  - what `exit` currently does (slash command? plain input? nothing?);
+  - whether there's an existing `/quit`-style command and I just want to alias `exit` to it;
+  - implementation path: keybinding override, slash-command extension, or input-intercept hook.
+  - Refs: `docs/keybindings.md`, `docs/usage.md`, `docs/extensions.md`.
+- [ ] **Customize the SYSTEM prompt.** Tune the system prompt to my preferences (tone, defaults, conventions I always want enforced). Figure out:
+  - whether to do this via a prompt template (`prompts/`) selected per-session, an extension that injects/edits the system message at `session_start`, or settings;
+  - what pi's default system prompt currently contains so I'm tweaking deltas rather than rewriting from scratch.
+  - Refs: `docs/prompt-templates.md`, `docs/extensions.md` (look for session/prompt hooks), `docs/usage.md`.
+- [ ] **Tree navigation keyboard overrides.** Rebind the TUI tree navigation (file tree / session tree / whichever component) to keys that match my muscle memory. Figure out:
+  - which tree(s) pi actually exposes and which keys are bound today;
+  - whether keybindings are user-configurable via settings or require a TUI extension.
+  - Refs: `docs/keybindings.md`, `docs/tui.md`, `docs/settings.md`.
+
 ## Extension ideas
 
 - [ ] **session-notes** — append a short, structured note (cwd, branch, summary) to a daily markdown log on `turn_end` or `session_end`.

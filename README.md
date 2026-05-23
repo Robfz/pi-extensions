@@ -113,10 +113,6 @@ Two flavors of exit (all triggers are case-insensitive and must be the entire me
 
 `agent_end` is used (rather than `turn_end`) for the deferred case because a single user message can span multiple turns when tools are called; we want to exit only when the agent has fully finished. Only `source: "interactive"` inputs are considered, so an RPC or extension-sent message containing a trigger can't accidentally tear down the session.
 
-### `dump-prompt`
-
-Registers a `/dump-prompt` slash command that writes the current effective system prompt (via `ctx.getSystemPrompt()`) to `/tmp/pi-system-prompt.md` and reports `chars · lines · ~tokens` through `ctx.ui.notify`. Token estimate is `chars / 4`, good enough for sizing the prompt before customizing it. Useful for inspecting what pi actually sends in a given session — the assembled prompt includes tool snippets, extension-supplied guidelines, project context files (`AGENTS.md` and friends), and skills.
-
 ## Reference
 
 Pi's docs are installed alongside the npm package, at:

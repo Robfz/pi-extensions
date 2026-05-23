@@ -6,6 +6,7 @@ Living list of things to build, polish, or explore for this repo. Move items to 
 
 - [ ] `scripts/link.sh` — idempotent script that walks `extensions/`, `skills/`, `themes/`, `prompts/` and (re)creates the symlinks under the matching `~/.pi/agent/<kind>/`. Handy after a fresh clone or when adding several entries at once.
 - [ ] `scripts/doctor.sh` — sanity check that every entry in this repo has a matching symlink under `~/.pi/agent/`, and flag orphan symlinks (broken or pointing outside this repo).
+- [ ] `scripts/sync-settings.sh` — reverse of `apply-settings.sh`: pull values from the live `~/.pi/agent/settings.json` back into `settings/settings.json`, but only for keys we already track. Useful after tweaking via pi's `/settings` UI.
 - [ ] Decide on a remote (GitHub? private?) and push.
 - [ ] CI: run `tsc --noEmit` on push so type regressions are caught even though pi doesn't need a build.
 - [ ] Pin `@earendil-works/pi-coding-agent` to the exact installed version in `package.json`, or auto-sync it from the globally installed one.
@@ -20,6 +21,7 @@ Living list of things to build, polish, or explore for this repo. Move items to 
 Things about pi's out-of-the-box behavior I want to change. Each needs a quick spike to figure out the right mechanism (extension hook? setting? keybinding? prompt template?) before turning into a real task.
 
 - [x] **`exit` actually exits pi.** Shipped as `extensions/exit-command.ts`. `.exit`/`.q` quit immediately (input consumed, `ctx.shutdown()` from the `input` hook). Bare `exit` defers: `input` hook flags the session, `agent_end` hook calls `ctx.shutdown()` once the agent is done.
+- [x] **Hide tool calls in `/tree` by default.** Built-in setting: `treeFilterMode: "no-tools"`. Tracked in `settings/settings.json`, applied via `scripts/apply-settings.sh`.
 - [ ] **Customize the SYSTEM prompt.** Tune the system prompt to my preferences (tone, defaults, conventions I always want enforced). Figure out:
   - whether to do this via a prompt template (`prompts/`) selected per-session, an extension that injects/edits the system message at `session_start`, or settings;
   - what pi's default system prompt currently contains so I'm tweaking deltas rather than rewriting from scratch.

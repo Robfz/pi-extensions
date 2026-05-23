@@ -1,19 +1,22 @@
 # pi-extensions
 
-Canonical home for my customizations to the [pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent): extensions, skills, themes, and prompt templates.
+Canonical home for my customizations to the [pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent): extensions, skills, themes, prompt templates, and settings.
 
-pi loads each of these from a directory under `~/.pi/agent/`. This repo keeps the real source under version control; everything in `~/.pi/agent/{extensions,skills,themes,prompts}/` should be a symlink into the matching directory here.
+pi loads each of these from a directory under `~/.pi/agent/`. This repo keeps the real source under version control; everything in `~/.pi/agent/{extensions,skills,themes,prompts}/` should be a symlink into the matching directory here. Settings are handled differently — see [`settings/`](settings/README.md).
 
 ## Repo layout
 
 ```
 .
-├── extensions/      # .ts extensions      → ~/.pi/agent/extensions/
-│   └── status-bar.ts
-├── skills/          # Agent Skills        → ~/.pi/agent/skills/
-├── themes/          # .json TUI themes    → ~/.pi/agent/themes/
-├── prompts/         # .md prompt templates → ~/.pi/agent/prompts/
-├── scripts/         # link.sh / doctor.sh (planned)
+├── extensions/      # .ts extensions       → ~/.pi/agent/extensions/   (symlinked)
+│   ├── status-bar.ts
+│   ├── exit-command.ts
+│   └── label.ts
+├── skills/          # Agent Skills         → ~/.pi/agent/skills/       (symlinked)
+├── themes/          # .json TUI themes     → ~/.pi/agent/themes/       (symlinked)
+├── prompts/         # .md prompt templates → ~/.pi/agent/prompts/      (symlinked)
+├── settings/        # curated settings.json → ~/.pi/agent/settings.json (merged via script)
+├── scripts/         # apply-settings.sh; link.sh / doctor.sh (planned)
 ├── package.json     # devDeps only: @earendil-works/pi-coding-agent for types
 ├── tsconfig.json    # editor-only; pi loads .ts directly, no build step
 ├── README.md
@@ -21,6 +24,8 @@ pi loads each of these from a directory under `~/.pi/agent/`. This repo keeps th
 ```
 
 Each top-level directory has its own short README with format and linking specifics.
+
+`settings/` is the odd one out: pi writes back to `~/.pi/agent/settings.json` (e.g. `lastChangelogVersion` bumps after upgrades), so symlinking would dirty `git status` constantly. Instead, the repo holds only the keys I deliberately set, and `scripts/apply-settings.sh` deep-merges them into the live file, preserving pi's own writes.
 
 Flat layout inside each directory is fine while every entry is a single file. Promote an extension or skill to its own directory the moment it gains a second file or wants its own README.
 
@@ -36,7 +41,7 @@ Verify with `ls -la ~/.pi/agent/<kind>/`; every line should show `-> /Users/robe
 
 ## Adding something new
 
-See the per-directory README for the exact command, but the shape is always the same:
+For extensions / skills / themes / prompts, see the per-directory README for the exact command, but the shape is always the same:
 
 1. Create the file (or folder, for directory-form skills) under the matching top-level directory.
 2. Symlink it into `~/.pi/agent/<kind>/` with the same basename.
@@ -44,6 +49,8 @@ See the per-directory README for the exact command, but the shape is always the 
 4. Commit.
 
 A `scripts/link.sh` is planned (see [TODO.md](TODO.md)) to do step 2 for every entry at once.
+
+For settings: add the key to `settings/settings.json`, run `scripts/apply-settings.sh`, commit. See [`settings/README.md`](settings/README.md).
 
 ## Editing
 
@@ -125,6 +132,16 @@ Label the last assistant message from outside `/tree`. Labels persist in the ses
 | `/unlabel` | Removes the label from the most recently labeled entry |
 
 Adapted from the upstream `examples/extensions/bookmark.ts`, renamed to match pi's own "label" vocabulary.
+
+## Settings
+
+Tracked in [`settings/settings.json`](settings/settings.json), per-key rationale in [`settings/README.md`](settings/README.md). Highlights:
+
+- `defaultThinkingLevel: "high"` — generous default thinking budget.
+- `treeFilterMode: "no-tools"` — hide tool calls in `/tree` by default.
+- `npmCommand: [...]` — force asdf-managed Node so pi's package commands resolve the right `npm`.
+
+Apply with `scripts/apply-settings.sh` (idempotent, preserves pi's own writes like `lastChangelogVersion`).
 
 ## Reference
 

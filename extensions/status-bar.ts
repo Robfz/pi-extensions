@@ -14,8 +14,9 @@
  * - dirty-dot   ●  green=clean, yellow=staged-only, red=unstaged/untracked
  *               omitted when not in a repo
  * - context-bar 5-cell █/░ bar, colored by pi's own thresholds (dim ≤70, warning >70, error >90)
- * - session-name ctx.sessionManager.getSessionName(), right-anchored on line 1, colored `accent`;
- *                omitted entirely when no name is set, or when line 1 has no room for it
+ * - session-name ctx.sessionManager.getSessionName(), right-anchored on line 1, colored `accent`.
+ *                When no name is set, renders "unnamed" in `dim`. Either is dropped if line 1
+ *                has no room for it.
  * - model       model.name with a leading "Claude " stripped (so "Claude Opus 4.7" → "Opus 4.7"),
  *               colored `accent`
  * - effort      thinking level when model.reasoning is true; colored using pi's matching
@@ -176,12 +177,15 @@ function installFooter(ctx: ExtensionContext): void {
 				const line1LeftTruncated = truncateToWidth(line1Left, innerWidth, theme.fg("dim", "…"));
 				const line1LeftWidth = visibleWidth(line1LeftTruncated);
 
-				// session name on the right of line 1, only when it fits with at least 2 cols of gap
-				const sessionName = ctx.sessionManager.getSessionName();
+				// session name on the right of line 1; "unnamed" in dim when no name is set.
+				// Either is dropped if line 1's left content leaves no room (with a 2-col gap).
+				const rawSessionName = ctx.sessionManager.getSessionName();
+				const sessionLabel = rawSessionName ?? "unnamed";
+				const sessionColor: ThemeColor = rawSessionName ? "accent" : "dim";
 				let line1Padded: string;
-				if (sessionName && line1LeftWidth + 2 + visibleWidth(sessionName) <= innerWidth) {
-					const sessionColored = theme.fg("accent", sessionName);
-					const gap = " ".repeat(innerWidth - line1LeftWidth - visibleWidth(sessionName));
+				if (line1LeftWidth + 2 + visibleWidth(sessionLabel) <= innerWidth) {
+					const sessionColored = theme.fg(sessionColor, sessionLabel);
+					const gap = " ".repeat(innerWidth - line1LeftWidth - visibleWidth(sessionLabel));
 					line1Padded = ` ${line1LeftTruncated}${gap}${sessionColored} `;
 				} else {
 					line1Padded = pad(line1LeftTruncated, line1LeftWidth);

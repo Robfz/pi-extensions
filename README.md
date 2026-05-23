@@ -94,7 +94,7 @@ Replaces pi's default footer (via `ctx.ui.setFooter`) with a three-line layout (
 - **branch** → `success`
 - **dirty-dot** → green clean / yellow staged-only / red unstaged-or-untracked; absent outside a git repo
 - **context-bar** → 5-cell `█`/`░`, colored by pi's thresholds (dim ≤70, warning >70, error >90)
-- **session-name** (right-anchored on line 1) → `accent`; only shown when a name is set and there's room
+- **session-name** (right-anchored on line 1) → `accent` when set; falls back to `unnamed` in `dim` when no name is configured. Dropped entirely only when line 1 has no room for it.
 - **model** → `accent` (with leading `Claude ` stripped: `Claude Opus 4.7` → `Opus 4.7`)
 - **effort** → pi's matching `thinking{Level}` theme key, so `high` glows the way pi glows it elsewhere
 - **right-side stats** → reuses the context-percentage color so a high-context session goes warning/error across the whole stats segment

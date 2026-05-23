@@ -81,18 +81,24 @@ Repo-wide:
 
 ### `status-bar`
 
-Replaces pi's default footer (via `ctx.ui.setFooter`) with a two-line layout:
+Replaces pi's default footer (via `ctx.ui.setFooter`) with a three-line layout (blank spacer between content lines) and 1-column left/right padding:
 
 ```
-<folder> <branch> <dirty-dot> <context-bar>
-<model> • <effort>                           ↑in ↓out Rread Wwrite $cost pct%/win
+ <folder> <branch> <dirty-dot> <context-bar>
+
+ <model> • <effort>                                   $cost [(sub)] pct%/win
 ```
 
-- **folder**: `basename(cwd)`
-- **dirty-dot**: green `●` clean, yellow `●` staged-only, red `●` unstaged/untracked; absent outside a git repo
-- **context-bar**: 5-cell `█`/`░` bar, colored by pi's thresholds (dim ≤70, warning >70, error >90)
-- **model**: `model.name` with leading `Claude ` stripped (e.g. `Claude Opus 4.7` → `Opus 4.7`)
-- Right-hand stats mirror pi's default footer, including `(sub)` on OAuth. The `(auto)` auto-compact flag is dropped because the extension API does not expose it.
+**Colors:**
+- **folder** → `accent`
+- **branch** → `success`
+- **dirty-dot** → green clean / yellow staged-only / red unstaged-or-untracked; absent outside a git repo
+- **context-bar** → 5-cell `█`/`░`, colored by pi's thresholds (dim ≤70, warning >70, error >90)
+- **model** → `accent` (with leading `Claude ` stripped: `Claude Opus 4.7` → `Opus 4.7`)
+- **effort** → pi's matching `thinking{Level}` theme key, so `high` glows the way pi glows it elsewhere
+- **right-side stats** → reuses the context-percentage color so a high-context session goes warning/error across the whole stats segment
+
+**Stats** are reduced to just `$cost [(sub)] pct%/win`. Tokens, cache R/W, and the `(auto)` indicator are intentionally dropped (the last because the extension API does not expose auto-compact state).
 
 Refreshes the git dirty cache on `session_start` and `turn_end`; reacts to branch changes via `footerData.onBranchChange`.
 

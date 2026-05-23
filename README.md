@@ -113,6 +113,18 @@ Two flavors of exit (all triggers are case-insensitive and must be the entire me
 
 `agent_end` is used (rather than `turn_end`) for the deferred case because a single user message can span multiple turns when tools are called; we want to exit only when the agent has fully finished. Only `source: "interactive"` inputs are considered, so an RPC or extension-sent message containing a trigger can't accidentally tear down the session.
 
+### `label`
+
+Label the last assistant message from outside `/tree`. Labels persist in the session JSONL and show up under the tree view's "labeled only" filter.
+
+| Command | Behavior |
+|---|---|
+| `/label` | Labels the last assistant message as `label-<timestamp>` |
+| `/label <name>` | Labels the last assistant message as `<name>` |
+| `/unlabel` | Removes the label from the most recently labeled entry |
+
+Adapted from the upstream `examples/extensions/bookmark.ts`, renamed to match pi's own "label" vocabulary.
+
 ## Reference
 
 Pi's docs are installed alongside the npm package, at:

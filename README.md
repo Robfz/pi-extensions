@@ -104,14 +104,14 @@ Refreshes the git dirty cache on `session_start` and `turn_end`; reacts to branc
 
 ### `exit-command`
 
-Makes the dot-prefixed triggers `.exit` and `.q` (case-insensitive, exact match after trim) actually shut pi down — but only after the agent has finished responding. The flow:
+Two flavors of exit (all triggers are case-insensitive and must be the entire message after trimming):
 
-1. `input` hook detects the trigger, flags the session as "shutdown pending", and lets the message through unchanged so the agent can still reply / run tools.
-2. `agent_end` hook calls `ctx.shutdown()` once the entire agent loop wraps up.
+| Trigger | Behavior |
+|---|---|
+| `.exit`, `.q` | **Immediate.** Input is consumed (`action: "handled"`), never reaches the agent. `ctx.shutdown()` runs right away. |
+| `exit` | **Deferred.** Input passes through (`action: "continue"`) so the agent can still reply / run tools. `ctx.shutdown()` runs from `agent_end` once the whole loop wraps up. A `ctx.ui.notify(...)` confirms the exit is queued. |
 
-`agent_end` is used rather than `turn_end` because a single user message can span multiple turns when tools are called; we want to exit only when the agent has fully finished. The dot prefix avoids any chance of tripping on the bare words `exit` / `quit` that the user might legitimately want the agent to interpret. Only `source: "interactive"` inputs are considered, so an RPC or extension-sent message containing the trigger can't accidentally tear down the session.
-
-A `ctx.ui.notify(...)` confirms the exit is queued so the user knows their input was registered.
+`agent_end` is used (rather than `turn_end`) for the deferred case because a single user message can span multiple turns when tools are called; we want to exit only when the agent has fully finished. Only `source: "interactive"` inputs are considered, so an RPC or extension-sent message containing a trigger can't accidentally tear down the session.
 
 ### `dump-prompt`
 

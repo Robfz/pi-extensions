@@ -1,47 +1,54 @@
 /**
  * exit-command extension
  *
- * Makes the dot-prefixed triggers `.exit` and `.q` actually shut pi down — but
- * only after the agent has finished responding to that message. The flow is:
+ * Two flavors of "exit" depending on how much patience you have:
  *
- *   1. User types `.exit` (or `.q`). The `input` event fires.
- *   2. We flag the session as "shutdown pending" and let the input pass through
- *      unchanged (`action: "continue"`), so the agent still receives it and can
- *      reply, run tools, do whatever it wants.
- *   3. When the whole agent loop ends (`agent_end`), we call `ctx.shutdown()`.
+ *   - `.exit` / `.q`  — *immediate*. The input is consumed (`action: "handled"`),
+ *     never reaches the agent, and `ctx.shutdown()` is called right away.
+ *     Use when you just want out.
  *
- * `agent_end` is used instead of `turn_end` because a single user message can
- * span multiple turns when the agent calls tools; we want to exit only when the
- * agent has fully wrapped up.
+ *   - `exit`           — *deferred*. The input passes through unchanged
+ *     (`action: "continue"`) so the agent can still reply and run tools, and
+ *     `ctx.shutdown()` is called from `agent_end` once the whole loop wraps up.
+ *     Use when you want to give the agent a chance to acknowledge / finish a
+ *     last bit of work first.
  *
- * The match is case-insensitive but requires the message to be *only* `.exit`
- * or `.q` (after trimming), so legitimate prompts that mention those tokens
- * inline still go through normally. The dot prefix also means we won't trip on
- * bare `exit` / `quit` that a user might want the agent to interpret literally.
+ * `agent_end` is used for the deferred case (rather than `turn_end`) because a
+ * single user message can span multiple turns when the agent calls tools; we
+ * want to exit only when the agent has fully wrapped up.
+ *
+ * All matches are case-insensitive and require the message to be *only* the
+ * trigger token (after trimming), so legitimate prompts like "exit the function
+ * early" still go through normally.
  *
  * Only `source: "interactive"` inputs are considered, so RPC or extension-sent
- * inputs containing the trigger can't accidentally tear down the session.
+ * inputs containing a trigger can't accidentally tear down the session.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-const EXIT_PATTERN = /^\.(exit|q)$/i;
+const IMMEDIATE_PATTERN = /^\.(exit|q)$/i;
+const DEFERRED_PATTERN = /^exit$/i;
 
 let shutdownPending = false;
-
-function isExitInput(text: string): boolean {
-	return EXIT_PATTERN.test(text.trim());
-}
 
 export default function (pi: ExtensionAPI) {
 	pi.on("input", async (event, ctx: ExtensionContext) => {
 		if (event.source !== "interactive") return { action: "continue" as const };
-		if (!isExitInput(event.text)) return { action: "continue" as const };
 
-		shutdownPending = true;
+		const text = event.text.trim();
 
-		if (ctx.hasUI) {
-			ctx.ui.notify("Exit requested — pi will quit when the agent finishes.", "info");
+		if (IMMEDIATE_PATTERN.test(text)) {
+			ctx.shutdown();
+			return { action: "handled" as const };
+		}
+
+		if (DEFERRED_PATTERN.test(text)) {
+			shutdownPending = true;
+			if (ctx.hasUI) {
+				ctx.ui.notify("Exit requested — pi will quit when the agent finishes.", "info");
+			}
+			return { action: "continue" as const };
 		}
 
 		return { action: "continue" as const };

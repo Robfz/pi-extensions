@@ -19,7 +19,7 @@ Living list of things to build, polish, or explore for this repo. Move items to 
 
 Things about pi's out-of-the-box behavior I want to change. Each needs a quick spike to figure out the right mechanism (extension hook? setting? keybinding? prompt template?) before turning into a real task.
 
-- [x] **`exit` actually exits pi.** Shipped as `extensions/exit-command.ts`: `input` hook flags the triggers `.exit`/`.q`, `agent_end` hook calls `ctx.shutdown()`. Agent gets to respond first.
+- [x] **`exit` actually exits pi.** Shipped as `extensions/exit-command.ts`. `.exit`/`.q` quit immediately (input consumed, `ctx.shutdown()` from the `input` hook). Bare `exit` defers: `input` hook flags the session, `agent_end` hook calls `ctx.shutdown()` once the agent is done.
 - [ ] **Customize the SYSTEM prompt.** Tune the system prompt to my preferences (tone, defaults, conventions I always want enforced). Figure out:
   - whether to do this via a prompt template (`prompts/`) selected per-session, an extension that injects/edits the system message at `session_start`, or settings;
   - what pi's default system prompt currently contains so I'm tweaking deltas rather than rewriting from scratch.

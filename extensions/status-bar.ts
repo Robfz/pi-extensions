@@ -25,8 +25,12 @@
  *               are intentionally dropped. The `(auto)` flag is also dropped because the extension
  *               API does not expose auto-compact state.
  *
- * Hooks: session_start + turn_end refresh the git dirty cache and request a re-render.
- *        Branch changes are picked up reactively via footerData.onBranchChange.
+ * Hooks: session_start installs the footer once (idempotent) and refreshes the git dirty
+ *        cache; turn_end refreshes the dirty cache and requests a re-render. Branch changes
+ *        are picked up reactively via footerData.onBranchChange. The render closure reads
+ *        a module-level `currentCtx` updated by both hooks, so per-session state stays fresh
+ *        without re-installing (which would trigger the previous footer's dispose to clobber
+ *        the new tuiRef).
  */
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";
@@ -136,11 +140,31 @@ function thinkingColor(level: string): ThemeColor {
 /** Holds the active TUI so out-of-band events (session_start, turn_end) can request renders. */
 let tuiRef: { requestRender(): void } | null = null;
 
-function installFooter(ctx: ExtensionContext): void {
-	ctx.ui.setFooter((tui, theme, footerData) => {
+/**
+ * Latest ctx seen by a session lifecycle hook, refreshed on session_start and turn_end.
+ * The render closure and the branch-change subscription read from this on every invocation
+ * so per-session state (model, sessionManager, cwd) is never stale — and so installFooter
+ * never needs to capture a particular ctx.
+ */
+let currentCtx: ExtensionContext | null = null;
+
+/**
+ * Idempotency guard for installFooter. Set to true after we mount the footer; cleared by
+ * dispose so a future setFooter(undefined) by another extension can be recovered from. The
+ * single-install discipline avoids the previous bug where two installs left a stale dispose
+ * from the first mount nulling out the tuiRef set by the second.
+ */
+let installed = false;
+
+function installFooter(initialCtx: ExtensionContext): void {
+	if (installed) return;
+	installed = true;
+	initialCtx.ui.setFooter((tui, theme, footerData) => {
 		tuiRef = tui;
 
 		const unsubBranch = footerData.onBranchChange(() => {
+			const ctx = currentCtx;
+			if (!ctx) return;
 			void refreshDirty(ctx.cwd).then((d) => {
 				dirtyCache = d;
 				tui.requestRender();
@@ -150,10 +174,13 @@ function installFooter(ctx: ExtensionContext): void {
 		return {
 			invalidate() {},
 			dispose: () => {
-				if (tuiRef === tui) tuiRef = null;
+				tuiRef = null;
 				unsubBranch();
+				installed = false;
 			},
 			render(width: number): string[] {
+				const ctx = currentCtx;
+				if (!ctx) return ["", "", ""];
 				// 1-column left/right padding
 				const innerWidth = Math.max(0, width - 2);
 				const pad = (line: string, lineWidth: number): string => {
@@ -292,12 +319,14 @@ function installFooter(ctx: ExtensionContext): void {
 
 export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
-		installFooter(ctx);
+		currentCtx = ctx;
+		installFooter(ctx); // idempotent; first call installs, subsequent calls no-op
 		dirtyCache = await refreshDirty(ctx.cwd);
 		tuiRef?.requestRender();
 	});
 
 	pi.on("turn_end", async (_event, ctx) => {
+		currentCtx = ctx;
 		dirtyCache = await refreshDirty(ctx.cwd);
 		tuiRef?.requestRender();
 	});

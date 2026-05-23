@@ -3,7 +3,7 @@
  *
  * Replaces pi's default footer entirely with a three-line layout (with a blank spacer):
  *
- *   Line 1:  <folder> <branch> <dirty-dot> <context-bar>
+ *   Line 1:  <folder> <branch> <dirty-dot> <context-bar>                          <session-name>
  *   Line 2:  (blank spacer)
  *   Line 3:  <model> • <effort>                                      <$cost [(sub)] pct%/win>
  *
@@ -14,6 +14,8 @@
  * - dirty-dot   ●  green=clean, yellow=staged-only, red=unstaged/untracked
  *               omitted when not in a repo
  * - context-bar 5-cell █/░ bar, colored by pi's own thresholds (dim ≤70, warning >70, error >90)
+ * - session-name ctx.sessionManager.getSessionName(), right-anchored on line 1, colored `accent`;
+ *                omitted entirely when no name is set, or when line 1 has no room for it
  * - model       model.name with a leading "Claude " stripped (so "Claude Opus 4.7" → "Opus 4.7"),
  *               colored `accent`
  * - effort      thinking level when model.reasoning is true; colored using pi's matching
@@ -170,8 +172,20 @@ function installFooter(ctx: ExtensionContext): void {
 				const dot = dirtyDot(dirtyCache, theme);
 				if (dot) line1Parts.push(dot);
 				line1Parts.push(contextBar(percent, theme));
-				const line1Truncated = truncateToWidth(line1Parts.join(" "), innerWidth, theme.fg("dim", "…"));
-				const line1Padded = pad(line1Truncated, visibleWidth(line1Truncated));
+				const line1Left = line1Parts.join(" ");
+				const line1LeftTruncated = truncateToWidth(line1Left, innerWidth, theme.fg("dim", "…"));
+				const line1LeftWidth = visibleWidth(line1LeftTruncated);
+
+				// session name on the right of line 1, only when it fits with at least 2 cols of gap
+				const sessionName = ctx.sessionManager.getSessionName();
+				let line1Padded: string;
+				if (sessionName && line1LeftWidth + 2 + visibleWidth(sessionName) <= innerWidth) {
+					const sessionColored = theme.fg("accent", sessionName);
+					const gap = " ".repeat(innerWidth - line1LeftWidth - visibleWidth(sessionName));
+					line1Padded = ` ${line1LeftTruncated}${gap}${sessionColored} `;
+				} else {
+					line1Padded = pad(line1LeftTruncated, line1LeftWidth);
+				}
 
 				// -------- line 3 left: model • effort
 				const model = ctx.model;

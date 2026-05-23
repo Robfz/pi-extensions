@@ -84,7 +84,7 @@ Repo-wide:
 Replaces pi's default footer (via `ctx.ui.setFooter`) with a three-line layout (blank spacer between content lines) and 1-column left/right padding:
 
 ```
- <folder> <branch> <dirty-dot> <context-bar>
+ <folder> <branch> <dirty-dot> <context-bar>                       <session-name>
 
  <model> • <effort>                                   $cost [(sub)] pct%/win
 ```
@@ -94,6 +94,7 @@ Replaces pi's default footer (via `ctx.ui.setFooter`) with a three-line layout (
 - **branch** → `success`
 - **dirty-dot** → green clean / yellow staged-only / red unstaged-or-untracked; absent outside a git repo
 - **context-bar** → 5-cell `█`/`░`, colored by pi's thresholds (dim ≤70, warning >70, error >90)
+- **session-name** (right-anchored on line 1) → `accent`; only shown when a name is set and there's room
 - **model** → `accent` (with leading `Claude ` stripped: `Claude Opus 4.7` → `Opus 4.7`)
 - **effort** → pi's matching `thinking{Level}` theme key, so `high` glows the way pi glows it elsewhere
 - **right-side stats** → reuses the context-percentage color so a high-context session goes warning/error across the whole stats segment

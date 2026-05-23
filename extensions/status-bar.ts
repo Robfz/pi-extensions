@@ -209,17 +209,32 @@ function installFooter(ctx: ExtensionContext): void {
 					}
 				}
 				const modelColored = theme.fg("accent", modelName);
-				let left: string;
-				let leftWidth: number;
+				let leftRaw: string;
+				let leftRawWidth: number;
 				if (effort !== null) {
 					const effortLabel = effort === "off" ? "thinking off" : effort;
 					const effortColored = theme.fg(thinkingColor(effort), effortLabel);
 					const sep = theme.fg("dim", " • ");
-					left = modelColored + sep + effortColored;
-					leftWidth = visibleWidth(modelName) + 3 + visibleWidth(effortLabel);
+					leftRaw = modelColored + sep + effortColored;
+					leftRawWidth = visibleWidth(modelName) + 3 + visibleWidth(effortLabel);
 				} else {
-					left = modelColored;
-					leftWidth = visibleWidth(modelName);
+					leftRaw = modelColored;
+					leftRawWidth = visibleWidth(modelName);
+				}
+
+				// Defensive: clamp left to innerWidth. On narrow terminals the model name
+				// (plus effort) can exceed the whole footer; without this, the "doesn't fit"
+				// branch below leaves `left` untruncated and the final line overflows `width`,
+				// causing pi's renderer to wrap or clobber. Matches the line-1 left-side
+				// treatment.
+				let left: string;
+				let leftWidth: number;
+				if (leftRawWidth > innerWidth) {
+					left = truncateToWidth(leftRaw, innerWidth, theme.fg("dim", "…"));
+					leftWidth = visibleWidth(left);
+				} else {
+					left = leftRaw;
+					leftWidth = leftRawWidth;
 				}
 
 				// -------- line 3 right: $cost [(sub)] pct%/win

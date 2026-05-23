@@ -113,6 +113,10 @@ Makes the dot-prefixed triggers `.exit` and `.q` (case-insensitive, exact match 
 
 A `ctx.ui.notify(...)` confirms the exit is queued so the user knows their input was registered.
 
+### `dump-prompt`
+
+Registers a `/dump-prompt` slash command that writes the current effective system prompt (via `ctx.getSystemPrompt()`) to `/tmp/pi-system-prompt.md` and reports `chars · lines · ~tokens` through `ctx.ui.notify`. Token estimate is `chars / 4`, good enough for sizing the prompt before customizing it. Useful for inspecting what pi actually sends in a given session — the assembled prompt includes tool snippets, extension-supplied guidelines, project context files (`AGENTS.md` and friends), and skills.
+
 ## Reference
 
 Pi's docs are installed alongside the npm package, at:

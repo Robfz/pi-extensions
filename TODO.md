@@ -20,7 +20,7 @@ Living list of things to build, polish, or explore for this repo. Move items to 
 
 Things about pi's out-of-the-box behavior I want to change. Each needs a quick spike to figure out the right mechanism (extension hook? setting? keybinding? prompt template?) before turning into a real task.
 
-- [x] **`exit` actually exits pi.** Shipped as `extensions/exit-command.ts`. `.exit`/`.q` quit immediately (input consumed, `ctx.shutdown()` from the `input` hook). Bare `exit` defers: `input` hook flags the session, `agent_end` hook calls `ctx.shutdown()` once the agent is done.
+- [x] **`exit` actually exits pi.** Shipped as `extensions/exit-command.ts`. `.exit`/`.q` quit immediately (input consumed, `ctx.shutdown()` from the `input` hook). Bare `exit` defers: `input` records interactive intent, `before_agent_start` arms shutdown on the loop whose `prompt` is `exit`, and the matching `agent_end` calls `ctx.shutdown()`. Arming at `before_agent_start` (not `input`) avoids a race where an `exit` typed during an earlier in-flight agent loop would shut pi down on the *wrong* `agent_end`.
 - [x] **Hide tool calls in `/tree` by default.** Built-in setting: `treeFilterMode: "no-tools"`. Tracked in `settings/settings.json`, applied via `scripts/apply-settings.sh`.
 - [ ] **Customize the SYSTEM prompt.** Tune the system prompt to my preferences (tone, defaults, conventions I always want enforced). Figure out:
   - whether to do this via a prompt template (`prompts/`) selected per-session, an extension that injects/edits the system message at `session_start`, or settings;

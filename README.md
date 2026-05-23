@@ -117,9 +117,9 @@ Two flavors of exit (all triggers are case-insensitive and must be the entire me
 | Trigger | Behavior |
 |---|---|
 | `.exit`, `.q` | **Immediate.** Input is consumed (`action: "handled"`), never reaches the agent. `ctx.shutdown()` runs right away. |
-| `exit` | **Deferred.** Input passes through (`action: "continue"`) so the agent can still reply / run tools. `ctx.shutdown()` runs from `agent_end` once the whole loop wraps up. A `ctx.ui.notify(...)` confirms the exit is queued. |
+| `exit` | **Deferred.** Input passes through (`action: "continue"`) so the agent can still reply / run tools. Shutdown is *armed* at `before_agent_start` for the agent loop whose `prompt` is `exit`, and *fired* from that loop's `agent_end`. A `ctx.ui.notify(...)` confirms the exit is queued. |
 
-`agent_end` is used (rather than `turn_end`) for the deferred case because a single user message can span multiple turns when tools are called; we want to exit only when the agent has fully finished. Only `source: "interactive"` inputs are considered, so an RPC or extension-sent message containing a trigger can't accidentally tear down the session.
+`agent_end` is used (rather than `turn_end`) for the deferred case because a single user message can span multiple turns when tools are called; we want to exit only when the agent has fully finished. Arming at `before_agent_start` (rather than at `input` time) avoids a race: an `exit` typed while a *previous* agent loop is still streaming would otherwise see that earlier loop's `agent_end` first and shut pi down before the queued `exit` ever reached the agent. Only `source: "interactive"` inputs are considered for the gate, so an RPC or extension-sent message containing the literal string `exit` can't accidentally tear down the session.
 
 ### `label`
 

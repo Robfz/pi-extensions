@@ -104,12 +104,12 @@ Refreshes the git dirty cache on `session_start` and `turn_end`; reacts to branc
 
 ### `exit-command`
 
-Makes the bare words `exit` and `quit` (case-insensitive, exact match after trim) actually shut pi down — but only after the agent has finished responding. The flow:
+Makes the dot-prefixed triggers `.exit` and `.q` (case-insensitive, exact match after trim) actually shut pi down — but only after the agent has finished responding. The flow:
 
-1. `input` hook detects the bare-word exit, flags the session as "shutdown pending", and lets the message through unchanged so the agent can still reply / run tools.
+1. `input` hook detects the trigger, flags the session as "shutdown pending", and lets the message through unchanged so the agent can still reply / run tools.
 2. `agent_end` hook calls `ctx.shutdown()` once the entire agent loop wraps up.
 
-`agent_end` is used rather than `turn_end` because a single user message can span multiple turns when tools are called; we want to exit only when the agent has fully finished. Only `source: "interactive"` inputs are considered, so an RPC or extension-sent message containing the word "exit" can't accidentally tear down the session.
+`agent_end` is used rather than `turn_end` because a single user message can span multiple turns when tools are called; we want to exit only when the agent has fully finished. The dot prefix avoids any chance of tripping on the bare words `exit` / `quit` that the user might legitimately want the agent to interpret. Only `source: "interactive"` inputs are considered, so an RPC or extension-sent message containing the trigger can't accidentally tear down the session.
 
 A `ctx.ui.notify(...)` confirms the exit is queued so the user knows their input was registered.
 

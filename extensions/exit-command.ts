@@ -1,10 +1,10 @@
 /**
  * exit-command extension
  *
- * Makes the bare words `exit` and `quit` actually shut pi down — but only after
- * the agent has finished responding to that message. The flow is:
+ * Makes the dot-prefixed triggers `.exit` and `.q` actually shut pi down — but
+ * only after the agent has finished responding to that message. The flow is:
  *
- *   1. User types `exit` (or `quit`). The `input` event fires.
+ *   1. User types `.exit` (or `.q`). The `input` event fires.
  *   2. We flag the session as "shutdown pending" and let the input pass through
  *      unchanged (`action: "continue"`), so the agent still receives it and can
  *      reply, run tools, do whatever it wants.
@@ -14,17 +14,18 @@
  * span multiple turns when the agent calls tools; we want to exit only when the
  * agent has fully wrapped up.
  *
- * The match is case-insensitive but requires the message to be *only* the word
- * `exit` or `quit` (after trimming), so legitimate prompts like
- * "exit the function early" still go through normally.
+ * The match is case-insensitive but requires the message to be *only* `.exit`
+ * or `.q` (after trimming), so legitimate prompts that mention those tokens
+ * inline still go through normally. The dot prefix also means we won't trip on
+ * bare `exit` / `quit` that a user might want the agent to interpret literally.
  *
  * Only `source: "interactive"` inputs are considered, so RPC or extension-sent
- * inputs containing the word "exit" can't accidentally tear down the session.
+ * inputs containing the trigger can't accidentally tear down the session.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-const EXIT_PATTERN = /^(exit|quit)$/i;
+const EXIT_PATTERN = /^\.(exit|q)$/i;
 
 let shutdownPending = false;
 

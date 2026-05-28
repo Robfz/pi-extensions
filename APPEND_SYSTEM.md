@@ -1,9 +1,3 @@
-<!--
-  Appended to pi's default system prompt on every session.
-  Pi scans: ~/.pi/agent/APPEND_SYSTEM.md (symlink into this file).
-  Reference: docs/usage.md "System Prompt Files" in the locally installed pi package.
--->
-
 ## Working agreement
 
 - Aim for **clean, simple, robust code** and **scalable, sensible architecture**.

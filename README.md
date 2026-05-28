@@ -11,7 +11,9 @@ pi loads each of these from a directory under `~/.pi/agent/`. This repo keeps th
 ├── extensions/        # .ts extensions       → ~/.pi/agent/extensions/      (symlinked)
 │   ├── status-bar.ts
 │   ├── exit-command.ts
-│   └── label.ts
+│   ├── label.ts
+│   └── subagent/         # directory-form (index.ts + agents.ts + README)
+├── agents/            # subagent defs (.md)  → ~/.pi/agent/agents/          (symlinked)
 ├── skills/            # Agent Skills         → ~/.pi/agent/skills/          (symlinked)
 ├── themes/            # .json TUI themes     → ~/.pi/agent/themes/          (symlinked)
 ├── prompts/           # .md prompt templates → ~/.pi/agent/prompts/         (symlinked)
@@ -123,6 +125,18 @@ Two flavors of exit (all triggers are case-insensitive and must be the entire me
 | `exit` | **Deferred.** Input passes through (`action: "continue"`) so the agent can still reply / run tools. Shutdown is *armed* at `before_agent_start` for the agent loop whose `prompt` is `exit`, and *fired* from that loop's `agent_end`. A `ctx.ui.notify(...)` confirms the exit is queued. |
 
 `agent_end` is used (rather than `turn_end`) for the deferred case because a single user message can span multiple turns when tools are called; we want to exit only when the agent has fully finished. Arming at `before_agent_start` (rather than at `input` time) avoids a race: an `exit` typed while a *previous* agent loop is still streaming would otherwise see that earlier loop's `agent_end` first and shut pi down before the queued `exit` ever reached the agent. Only `source: "interactive"` inputs are considered for the gate, so an RPC or extension-sent message containing the literal string `exit` can't accidentally tear down the session.
+
+### `subagent`
+
+Directory-form extension under [`extensions/subagent/`](extensions/subagent/). Near-verbatim vendor of the upstream subagent example from `@earendil-works/pi-coding-agent` (`examples/extensions/subagent/`), replacing the previous [`pi-subagents`](https://github.com/nicobailon/pi-subagents) npm package (~70 source files) with the leaner reference (`index.ts` + `agents.ts`, ~1.1 kloc).
+
+Registers one tool, `subagent`, with three modes: single (`{agent, task}`), parallel (`{tasks: […]}`, up to 8 / 4 concurrent / 50 KB per task), and chain (`{chain: […]}` with `{previous}` placeholder). Each call spawns a fresh `pi --mode json -p --no-session` subprocess per agent and streams JSON events back for collapsed/expanded TUI rendering.
+
+Agent definitions live in [`agents/`](agents/) (user scope) and `.pi/agents/` per-project (opt-in via `agentScope: "both"`, with confirmation prompt). Workflow prompt templates that drive the tool's chain mode are in [`prompts/`](prompts/) (`implement`, `scout-and-plan`, `implement-and-review`).
+
+Dropped from the previous implementation, on purpose: async/background runs, slash commands like `/run` and `/subagents-doctor`, agent CRUD via `action`, forked-context spawning, worktree isolation, skills injection, control/attention tracking, and the `oracle`/`researcher`/`context-builder`/`delegate` builtins. If any of those turn out to be missed, layer them back in piecewise rather than reinstalling the heavyweight package.
+
+See [`extensions/subagent/README.md`](extensions/subagent/README.md) for full details.
 
 ### `label`
 

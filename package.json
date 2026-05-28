@@ -4,10 +4,12 @@
   "private": true,
   "description": "Roberto's custom extensions for the pi coding agent.",
   "devDependencies": {
+    "@earendil-works/pi-agent-core": "^0.75.4",
     "@earendil-works/pi-ai": "^0.75.4",
     "@earendil-works/pi-coding-agent": "^0.75.4",
     "@earendil-works/pi-tui": "^0.75.4",
     "@types/node": "^25.9.1",
+    "typebox": "^1.1.24",
     "typescript": "^5.6.0"
   }
 }

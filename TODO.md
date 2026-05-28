@@ -14,7 +14,7 @@ Living list of things to build, polish, or explore for this repo. Move items to 
 ## Layout
 
 - [x] Sibling top-level folders for the other pi customization surfaces (`skills/`, `themes/`, `prompts/`).
-- [ ] Revisit the flat layout inside `extensions/` once we have 3+ extensions or one grows beyond a single file → move to `extensions/<name>/index.ts` with per-extension READMEs.
+- [x] Revisit the flat layout inside `extensions/` once we have 3+ extensions or one grows beyond a single file → move to `extensions/<name>/index.ts` with per-extension READMEs. First directory-form extension is `extensions/subagent/`; `extensions/README.md` documents both forms.
 
 ## Behavior tweaks I want
 

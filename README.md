@@ -8,22 +8,25 @@ pi loads each of these from a directory under `~/.pi/agent/`. This repo keeps th
 
 ```
 .
-├── extensions/      # .ts extensions       → ~/.pi/agent/extensions/   (symlinked)
+├── extensions/        # .ts extensions       → ~/.pi/agent/extensions/      (symlinked)
 │   ├── status-bar.ts
 │   ├── exit-command.ts
 │   └── label.ts
-├── skills/          # Agent Skills         → ~/.pi/agent/skills/       (symlinked)
-├── themes/          # .json TUI themes     → ~/.pi/agent/themes/       (symlinked)
-├── prompts/         # .md prompt templates → ~/.pi/agent/prompts/      (symlinked)
-├── settings/        # curated settings.json → ~/.pi/agent/settings.json (merged via script)
-├── scripts/         # apply-settings.sh; link.sh / doctor.sh (planned)
-├── package.json     # devDeps only: @earendil-works/pi-coding-agent for types
-├── tsconfig.json    # editor-only; pi loads .ts directly, no build step
+├── skills/            # Agent Skills         → ~/.pi/agent/skills/          (symlinked)
+├── themes/            # .json TUI themes     → ~/.pi/agent/themes/          (symlinked)
+├── prompts/           # .md prompt templates → ~/.pi/agent/prompts/         (symlinked)
+├── settings/          # curated settings.json → ~/.pi/agent/settings.json   (merged via script)
+├── APPEND_SYSTEM.md   # appended to system prompt → ~/.pi/agent/APPEND_SYSTEM.md (symlinked)
+├── scripts/           # apply-settings.sh; link.sh / doctor.sh (planned)
+├── package.json       # devDeps only: @earendil-works/pi-coding-agent for types
+├── tsconfig.json      # editor-only; pi loads .ts directly, no build step
 ├── README.md
 └── TODO.md
 ```
 
 Each top-level directory has its own short README with format and linking specifics.
+
+`APPEND_SYSTEM.md` is a single file at the repo root rather than a subdirectory because upstream itself reads a single file at `~/.pi/agent/APPEND_SYSTEM.md` — keeping it flat preserves the 1:1 path mirror. Its contents are appended to pi's default system prompt on every session (the default prompt is kept; this is *additive*, not a replacement — for that, use `SYSTEM.md` instead, which we deliberately don't). See `docs/usage.md` “System Prompt Files” in the locally installed pi package.
 
 `settings/` is the odd one out: pi writes back to `~/.pi/agent/settings.json` (e.g. `lastChangelogVersion` bumps after upgrades), so symlinking would dirty `git status` constantly. Instead, the repo holds only the keys I deliberately set, and `scripts/apply-settings.sh` deep-merges them into the live file, preserving pi's own writes.
 

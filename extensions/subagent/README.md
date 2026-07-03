@@ -12,11 +12,16 @@ Registers one tool, `subagent`, that delegates work to focused child agents. Thr
 | Parallel | `{ tasks: [{agent, task}, …] }` | Up to 8 children, 4 concurrent, 50 KB output cap each |
 | Chain | `{ chain: [{agent, task}, …] }` | Sequential; `{previous}` placeholder receives prior step's output |
 
-Each invocation spawns a fresh `pi --mode json -p --no-session` subprocess with the agent's system prompt and tool/model allowlist, streams its `message_end` / `tool_result_end` JSON events, and renders progress in the TUI (collapsed by default, Ctrl+O to expand). `AbortSignal` propagates as SIGTERM → SIGKILL.
+Each invocation spawns a fresh subprocess per the agent's `runner`:
+
+- **`pi` (default):** `pi --mode json -p --no-session` with the agent's system prompt (temp file via `--append-system-prompt`) and tool/model allowlist; parses `message_end` / `tool_result_end` JSON events.
+- **`cursor`:** `cursor-agent -p --output-format stream-json --force --trust` with the system prompt embedded in the prompt (`<agent-instructions>` tags); parses cursor NDJSON events (`system/init` → model, `assistant` → text turns, `tool_call` started/completed → tool call + tool result messages, `result` → stop reason / fallback text) into the same `Message[]` shape so streaming, chaining, and rendering are shared. `tools:` frontmatter is ignored (cursor-agent has no allowlist flag); token usage comes from the terminal `result` event (no dollar cost or context size), and a cursor run that exits 0 without a terminal `result` event is treated as an error.
+
+Both stream progress into the TUI (collapsed by default, Ctrl+O to expand). `AbortSignal` propagates as SIGTERM → SIGKILL.
 
 ## Agent definitions
 
-See [`../../agents/`](../../agents/). Agents are markdown files with YAML frontmatter (`name`, `description`, `tools?`, `model?`).
+See [`../../agents/`](../../agents/). Agents are markdown files with YAML frontmatter (`name`, `description`, `tools?`, `model?`, `runner?`).
 
 - `~/.pi/agent/agents/*.md` — user scope (always loaded).
 - `.pi/agents/*.md` — project scope. **Default is `agentScope: "user"`.** Project agents are opt-in via `agentScope: "both"` or `"project"`; when running interactively the tool prompts for confirmation the first time a project agent is invoked (unless `confirmProjectAgents: false`).
@@ -32,7 +37,7 @@ The bundled prompts under [`../../prompts/`](../../prompts/) (`implement.md`, `s
 
 ## Departures from upstream
 
-None yet — this is a verbatim vendor. Tweaks land as follow-up commits with a rationale in `CHANGELOG.md` / git history.
+- **Cursor runner** (`agents.ts`, `index.ts`): agents can declare `runner: cursor` in frontmatter to execute on Cursor's `cursor-agent` CLI (headless mode, Composer 2.5 et al.) instead of a `pi` subprocess. See [`../../agents/README.md`](../../agents/README.md) for frontmatter semantics.
 
 ## Reference
 

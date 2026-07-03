@@ -1,8 +1,11 @@
 /**
  * Subagent Tool - Delegate tasks to specialized agents
  *
- * Spawns a separate `pi` process for each subagent invocation,
- * giving it an isolated context window.
+ * Spawns a separate child process for each subagent invocation,
+ * giving it an isolated context window. Agents run on one of two
+ * runners (frontmatter `runner:`):
+ *   - pi (default): `pi --mode json -p --no-session`
+ *   - cursor: `cursor-agent -p --output-format stream-json --force --trust`
  *
  * Supports three modes:
  *   - Single: { agent: "name", task: "..." }
@@ -36,6 +39,12 @@ function formatTokens(count: number): string {
 	return `${(count / 1000000).toFixed(1)}M`;
 }
 
+function formatDuration(ms: number): string {
+	const seconds = ms / 1000;
+	if (seconds < 60) return `${seconds.toFixed(1)}s`;
+	return `${Math.floor(seconds / 60)}m${Math.round(seconds % 60)}s`;
+}
+
 function formatUsageStats(
 	usage: {
 		input: number;
@@ -47,6 +56,7 @@ function formatUsageStats(
 		turns?: number;
 	},
 	model?: string,
+	durationMs?: number,
 ): string {
 	const parts: string[] = [];
 	if (usage.turns) parts.push(`${usage.turns} turn${usage.turns > 1 ? "s" : ""}`);
@@ -58,6 +68,7 @@ function formatUsageStats(
 	if (usage.contextTokens && usage.contextTokens > 0) {
 		parts.push(`ctx:${formatTokens(usage.contextTokens)}`);
 	}
+	if (durationMs && durationMs > 0) parts.push(formatDuration(durationMs));
 	if (model) parts.push(model);
 	return parts.join(" ");
 }
@@ -149,6 +160,7 @@ interface SingleResult {
 	stderr: string;
 	usage: UsageStats;
 	model?: string;
+	durationMs?: number;
 	stopReason?: string;
 	errorMessage?: string;
 	step?: number;
@@ -256,6 +268,83 @@ function getPiInvocation(args: string[]): { command: string; args: string[] } {
 	return { command: "pi", args };
 }
 
+/** Map cursor-agent tool names (from `<name>ToolCall` keys) to pi tool names for rendering. */
+const CURSOR_TOOL_NAME_MAP: Record<string, string> = {
+	shell: "bash",
+	glob: "find",
+};
+
+/**
+ * Extract a tool name, args, and (for completed events) result from a
+ * cursor-agent `tool_call` event payload. Payloads are either
+ * `{ <name>ToolCall: { args: {...}, result?: {...} } }` or the generic
+ * `{ function: { name, arguments: "<json>" } }` shape.
+ */
+function parseCursorToolCall(toolCall: unknown): { name: string; args: Record<string, any>; result?: unknown } | null {
+	if (!toolCall || typeof toolCall !== "object") return null;
+	const record = toolCall as Record<string, any>;
+
+	if (typeof record.function?.name === "string") {
+		let args: Record<string, any> = {};
+		try {
+			const parsed = JSON.parse(record.function.arguments ?? "{}");
+			if (parsed && typeof parsed === "object") args = parsed;
+		} catch {
+			/* ignore malformed arguments */
+		}
+		return { name: record.function.name, args };
+	}
+
+	const key = Object.keys(record).find((k) => k.endsWith("ToolCall"));
+	if (!key) return null;
+	const rawName = key.slice(0, -"ToolCall".length);
+	const args = record[key]?.args;
+	return {
+		name: CURSOR_TOOL_NAME_MAP[rawName] ?? rawName,
+		args: args && typeof args === "object" ? args : {},
+		result: record[key]?.result,
+	};
+}
+
+const CURSOR_TOOL_RESULT_CAP = 4000;
+
+/**
+ * Flatten a cursor tool result into display text. Results are keyed by status,
+ * e.g. `{ success: {...} }`; any other status key is treated as an error.
+ */
+function formatCursorToolResult(result: unknown): { text: string; isError: boolean } {
+	if (!result || typeof result !== "object") return { text: "(no result)", isError: false };
+	const record = result as Record<string, any>;
+	const keys = Object.keys(record);
+	if (keys.length === 0) return { text: "(no result)", isError: false };
+	let statusKey: string;
+	if ("success" in record) {
+		statusKey = "success";
+	} else {
+		const errorKeys = ["error", "failure", "rejected", "cancelled", "denied"];
+		const foundErrorKey = errorKeys.find((k) => k in record);
+		if (foundErrorKey) {
+			statusKey = foundErrorKey;
+		} else {
+			const objectKey = keys.find((k) => record[k] != null && typeof record[k] === "object");
+			statusKey = objectKey ?? keys[0];
+		}
+	}
+	const isError = statusKey !== "success";
+	const payload = record[statusKey];
+	let text: string;
+	if (typeof payload === "string") {
+		text = payload;
+	} else if (payload && typeof payload === "object") {
+		const preferred = payload.stdout ?? payload.output ?? payload.content;
+		text = typeof preferred === "string" && preferred.trim() ? preferred : JSON.stringify(payload);
+	} else {
+		text = String(payload ?? statusKey);
+	}
+	if (text.length > CURSOR_TOOL_RESULT_CAP) text = `${text.slice(0, CURSOR_TOOL_RESULT_CAP)}\n[truncated]`;
+	return { text: isError ? `[${statusKey}] ${text}` : text, isError };
+}
+
 type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
 
 async function runSingleAgent(
@@ -285,9 +374,13 @@ async function runSingleAgent(
 		};
 	}
 
-	const args: string[] = ["--mode", "json", "-p", "--no-session"];
+	const isCursor = agent.runner === "cursor";
+	const args: string[] = isCursor
+		? ["-p", "--output-format", "stream-json", "--force", "--trust"]
+		: ["--mode", "json", "-p", "--no-session"];
 	if (agent.model) args.push("--model", agent.model);
-	if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
+	// cursor-agent has no tool allowlist flag; `tools:` frontmatter is ignored for cursor agents.
+	if (!isCursor && agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
 
 	let tmpPromptDir: string | null = null;
 	let tmpPromptPath: string | null = null;
@@ -314,18 +407,29 @@ async function runSingleAgent(
 	};
 
 	try {
-		if (agent.systemPrompt.trim()) {
-			const tmp = await writePromptToTempFile(agent.name, agent.systemPrompt);
-			tmpPromptDir = tmp.dir;
-			tmpPromptPath = tmp.filePath;
-			args.push("--append-system-prompt", tmpPromptPath);
+		if (isCursor) {
+			// cursor-agent has no system prompt flag; embed the agent definition in the prompt.
+			const systemPrompt = agent.systemPrompt.trim();
+			args.push(
+				systemPrompt
+					? `<agent-instructions>\n${systemPrompt}\n</agent-instructions>\n\nTask: ${task}`
+					: `Task: ${task}`,
+			);
+		} else {
+			if (agent.systemPrompt.trim()) {
+				const tmp = await writePromptToTempFile(agent.name, agent.systemPrompt);
+				tmpPromptDir = tmp.dir;
+				tmpPromptPath = tmp.filePath;
+				args.push("--append-system-prompt", tmpPromptPath);
+			}
+			args.push(`Task: ${task}`);
 		}
-
-		args.push(`Task: ${task}`);
 		let wasAborted = false;
+		let sawCursorResult = false;
+		const startedAt = Date.now();
 
 		const exitCode = await new Promise<number>((resolve) => {
-			const invocation = getPiInvocation(args);
+			const invocation = isCursor ? { command: "cursor-agent", args } : getPiInvocation(args);
 			const proc = spawn(invocation.command, invocation.args, {
 				cwd: cwd ?? defaultCwd,
 				shell: false,
@@ -333,7 +437,7 @@ async function runSingleAgent(
 			});
 			let buffer = "";
 
-			const processLine = (line: string) => {
+			const processPiLine = (line: string) => {
 				if (!line.trim()) return;
 				let event: any;
 				try {
@@ -370,6 +474,125 @@ async function runSingleAgent(
 				}
 			};
 
+			// Builds pi-shaped assistant messages from cursor-agent NDJSON events so the
+			// downstream pipeline (getFinalOutput, getDisplayItems, rendering) is shared.
+			const makeCursorAssistantMessage = (content: Extract<Message, { role: "assistant" }>["content"]): Message => ({
+				role: "assistant",
+				content,
+				api: "cursor-agent",
+				provider: "cursor",
+				model: currentResult.model ?? "unknown",
+				usage: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 0,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "stop",
+				timestamp: Date.now(),
+			});
+
+			let cursorToolCallCounter = 0;
+			const pendingFallbackIds: string[] = [];
+			const processCursorLine = (line: string) => {
+				if (!line.trim()) return;
+				let event: any;
+				try {
+					event = JSON.parse(line);
+				} catch {
+					return;
+				}
+
+				switch (event.type) {
+					case "system": {
+						if (event.subtype === "init" && typeof event.model === "string" && event.model) {
+							currentResult.model = event.model;
+						}
+						break;
+					}
+					case "assistant": {
+						// One event per complete assistant message segment (between tool calls).
+						const content = Array.isArray(event.message?.content) ? event.message.content : [];
+						const text = content
+							.filter((p: any) => p?.type === "text" && typeof p.text === "string")
+							.map((p: any) => p.text)
+							.join("");
+						if (!text.trim()) break;
+						currentResult.messages.push(makeCursorAssistantMessage([{ type: "text", text }]));
+						currentResult.usage.turns++;
+						emitUpdate();
+						break;
+					}
+					case "tool_call": {
+						const parsed = parseCursorToolCall(event.tool_call);
+						if (!parsed) break;
+						let id: string | undefined;
+						if (typeof event.call_id === "string" && event.call_id) {
+							id = event.call_id;
+						} else if (event.subtype === "started") {
+							id = `cursor-tool-${++cursorToolCallCounter}`;
+							pendingFallbackIds.push(id);
+						} else if (event.subtype === "completed") {
+							id = pendingFallbackIds.shift();
+							if (!id) break;
+						} else {
+							break;
+						}
+						if (!id) break;
+						if (event.subtype === "started") {
+							currentResult.messages.push(
+								makeCursorAssistantMessage([{ type: "toolCall", id, name: parsed.name, arguments: parsed.args }]),
+							);
+							emitUpdate();
+						} else if (event.subtype === "completed") {
+							const { text, isError } = formatCursorToolResult(parsed.result);
+							currentResult.messages.push({
+								role: "toolResult",
+								toolCallId: id,
+								toolName: parsed.name,
+								content: [{ type: "text", text }],
+								isError,
+								timestamp: Date.now(),
+							});
+							emitUpdate();
+						}
+						break;
+					}
+					case "result": {
+						sawCursorResult = true;
+						if (event.usage && typeof event.usage === "object" && event.usage !== null) {
+							const u = event.usage as Record<string, unknown>;
+							if (typeof u.inputTokens === "number") currentResult.usage.input += u.inputTokens || 0;
+							if (typeof u.outputTokens === "number") currentResult.usage.output += u.outputTokens || 0;
+							if (typeof u.cacheReadTokens === "number") currentResult.usage.cacheRead += u.cacheReadTokens || 0;
+							if (typeof u.cacheWriteTokens === "number") currentResult.usage.cacheWrite += u.cacheWriteTokens || 0;
+						}
+						if (event.is_error) {
+							currentResult.stopReason = "error";
+							if (typeof event.result === "string" && event.result.trim()) {
+								currentResult.errorMessage = event.result;
+							}
+						} else {
+							currentResult.stopReason = "stop";
+							// Fallback: if no assistant text was streamed, use the aggregated result.
+							if (
+								!getFinalOutput(currentResult.messages) &&
+								typeof event.result === "string" &&
+								event.result.trim()
+							) {
+								currentResult.messages.push(makeCursorAssistantMessage([{ type: "text", text: event.result }]));
+							}
+						}
+						emitUpdate();
+						break;
+					}
+				}
+			};
+
+			const processLine = isCursor ? processCursorLine : processPiLine;
+
 			proc.stdout.on("data", (data) => {
 				buffer += data.toString();
 				const lines = buffer.split("\n");
@@ -386,7 +609,11 @@ async function runSingleAgent(
 				resolve(code ?? 0);
 			});
 
-			proc.on("error", () => {
+			proc.on("error", (err: NodeJS.ErrnoException) => {
+				currentResult.stderr += `Failed to spawn "${invocation.command}": ${err.message}\n`;
+				if (isCursor && err.code === "ENOENT") {
+					currentResult.stderr += "Cursor CLI not found. Install: curl https://cursor.com/install -fsS | bash\n";
+				}
 				resolve(1);
 			});
 
@@ -404,6 +631,13 @@ async function runSingleAgent(
 		});
 
 		currentResult.exitCode = exitCode;
+		currentResult.durationMs = Date.now() - startedAt;
+		if (isCursor && exitCode === 0 && !wasAborted && !sawCursorResult) {
+			currentResult.stopReason = "error";
+			if (!currentResult.errorMessage) {
+				currentResult.errorMessage = "cursor-agent exited without emitting a terminal result event";
+			}
+		}
 		if (wasAborted) throw new Error("Subagent was aborted");
 		return currentResult;
 	} finally {
@@ -797,7 +1031,7 @@ export default function (pi: ExtensionAPI) {
 							container.addChild(new Markdown(finalOutput.trim(), 0, 0, mdTheme));
 						}
 					}
-					const usageStr = formatUsageStats(r.usage, r.model);
+					const usageStr = formatUsageStats(r.usage, r.model, r.durationMs);
 					if (usageStr) {
 						container.addChild(new Spacer(1));
 						container.addChild(new Text(theme.fg("dim", usageStr), 0, 0));
@@ -813,7 +1047,7 @@ export default function (pi: ExtensionAPI) {
 					text += `\n${renderDisplayItems(displayItems, COLLAPSED_ITEM_COUNT)}`;
 					if (displayItems.length > COLLAPSED_ITEM_COUNT) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
 				}
-				const usageStr = formatUsageStats(r.usage, r.model);
+				const usageStr = formatUsageStats(r.usage, r.model, r.durationMs);
 				if (usageStr) text += `\n${theme.fg("dim", usageStr)}`;
 				return new Text(text, 0, 0);
 			}
@@ -882,7 +1116,7 @@ export default function (pi: ExtensionAPI) {
 							container.addChild(new Markdown(finalOutput.trim(), 0, 0, mdTheme));
 						}
 
-						const stepUsage = formatUsageStats(r.usage, r.model);
+						const stepUsage = formatUsageStats(r.usage, r.model, r.durationMs);
 						if (stepUsage) container.addChild(new Text(theme.fg("dim", stepUsage), 0, 0));
 					}
 
@@ -967,7 +1201,7 @@ export default function (pi: ExtensionAPI) {
 							container.addChild(new Markdown(finalOutput.trim(), 0, 0, mdTheme));
 						}
 
-						const taskUsage = formatUsageStats(r.usage, r.model);
+						const taskUsage = formatUsageStats(r.usage, r.model, r.durationMs);
 						if (taskUsage) container.addChild(new Text(theme.fg("dim", taskUsage), 0, 0));
 					}
 

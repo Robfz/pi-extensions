@@ -8,9 +8,13 @@ import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 
 export type AgentScope = "user" | "project" | "both";
 
+/** Which CLI executes the agent: pi (default) or Cursor's cursor-agent. */
+export type AgentRunner = "pi" | "cursor";
+
 export interface AgentConfig {
 	name: string;
 	description: string;
+	runner: AgentRunner;
 	tools?: string[];
 	model?: string;
 	systemPrompt: string;
@@ -60,9 +64,15 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			.map((t: string) => t.trim())
 			.filter(Boolean);
 
+		// Skip invalid runner values so typos surface as "Unknown agent" instead of silently using pi.
+		if (frontmatter.runner && frontmatter.runner !== "pi" && frontmatter.runner !== "cursor") {
+			continue;
+		}
+
 		agents.push({
 			name: frontmatter.name,
 			description: frontmatter.description,
+			runner: frontmatter.runner === "cursor" ? "cursor" : "pi",
 			tools: tools && tools.length > 0 ? tools : undefined,
 			model: frontmatter.model,
 			systemPrompt: body,

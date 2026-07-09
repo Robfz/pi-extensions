@@ -30,10 +30,20 @@ A `scripts/sync-settings.sh` to automate the live → repo direction (filtered t
 | `defaultProvider` | `"anthropic"` | Default model provider. |
 | `defaultModel` | `"claude-fable-5"` | Preferred default model. |
 | `defaultThinkingLevel` | `"high"` | I want generous thinking budget by default. |
-
-Machine-local keys (e.g. `npmCommand` forcing asdf-managed Node) live only in the live `~/.pi/agent/settings.json` — the merge in `apply-settings.sh` preserves them.
 | `theme` | `"dark"` | Built-in dark theme. |
 | `editorPaddingX` | `1` | Small horizontal breathing room in the input editor. |
 | `treeFilterMode` | `"no-tools"` | Hide tool calls in `/tree` by default; I want to see user/assistant turns, not the noise. |
+
+## Machine-local keys
+
+Some keys are machine-specific and deliberately **not** tracked here — they live only in the live `~/.pi/agent/settings.json`, and the merge in `apply-settings.sh` preserves them. Add them by hand on machines that need them.
+
+### `npmCommand`
+
+On machines where Node is managed by asdf, pi's package commands may resolve the wrong `npm`. Force the asdf-managed one (adjust the version to the local install):
+
+```json
+"npmCommand": ["env", "ASDF_NODEJS_VERSION=24.15.0", "asdf", "exec", "npm"]
+```
 
 Reference: `docs/settings.md` in the locally installed pi package for the full schema and every available key.

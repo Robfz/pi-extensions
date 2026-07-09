@@ -1153,7 +1153,7 @@ export default function (pi: ExtensionAPI) {
 				const failCount = details.results.filter((r) => r.exitCode !== -1 && isFailedResult(r)).length;
 				const isRunning = running > 0;
 				const icon = isRunning
-					? theme.fg("warning", "⏳")
+					? theme.fg("warning", "…")
 					: failCount > 0
 						? theme.fg("warning", "◐")
 						: theme.fg("success", "✓");
@@ -1218,7 +1218,7 @@ export default function (pi: ExtensionAPI) {
 				for (const r of details.results) {
 					const rIcon =
 						r.exitCode === -1
-							? theme.fg("warning", "⏳")
+							? theme.fg("warning", "…")
 							: isFailedResult(r)
 								? theme.fg("error", "✗")
 								: theme.fg("success", "✓");

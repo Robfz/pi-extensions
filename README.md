@@ -156,7 +156,6 @@ Tracked in [`settings/settings.json`](settings/settings.json), per-key rationale
 
 - `defaultThinkingLevel: "high"` — generous default thinking budget.
 - `treeFilterMode: "no-tools"` — hide tool calls in `/tree` by default.
-- `npmCommand: [...]` — force asdf-managed Node so pi's package commands resolve the right `npm`.
 
 Apply with `scripts/apply-settings.sh` (idempotent, preserves pi's own writes like `lastChangelogVersion`).
 

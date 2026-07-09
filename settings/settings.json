@@ -1,14 +1,7 @@
 {
   "defaultProvider": "anthropic",
-  "defaultModel": "claude-opus-4-7",
+  "defaultModel": "claude-fable-5",
   "defaultThinkingLevel": "high",
-  "npmCommand": [
-    "env",
-    "ASDF_NODEJS_VERSION=24.15.0",
-    "asdf",
-    "exec",
-    "npm"
-  ],
   "theme": "dark",
   "editorPaddingX": 1,
   "treeFilterMode": "no-tools"

@@ -28,9 +28,10 @@ A `scripts/sync-settings.sh` to automate the live → repo direction (filtered t
 | Key | Value | Why |
 |-----|-------|-----|
 | `defaultProvider` | `"anthropic"` | Default model provider. |
-| `defaultModel` | `"claude-opus-4-7"` | Preferred default model. |
+| `defaultModel` | `"claude-fable-5"` | Preferred default model. |
 | `defaultThinkingLevel` | `"high"` | I want generous thinking budget by default. |
-| `npmCommand` | `["env", "ASDF_NODEJS_VERSION=...", "asdf", "exec", "npm"]` | Force asdf-managed Node so pi's package commands resolve the right `npm`. |
+
+Machine-local keys (e.g. `npmCommand` forcing asdf-managed Node) live only in the live `~/.pi/agent/settings.json` — the merge in `apply-settings.sh` preserves them.
 | `theme` | `"dark"` | Built-in dark theme. |
 | `editorPaddingX` | `1` | Small horizontal breathing room in the input editor. |
 | `treeFilterMode` | `"no-tools"` | Hide tool calls in `/tree` by default; I want to see user/assistant turns, not the noise. |

@@ -4,10 +4,10 @@ Living list of things to build, polish, or explore for this repo. Move items to 
 
 ## Repo plumbing
 
-- [ ] `scripts/link.sh` — idempotent script that walks `extensions/`, `skills/`, `themes/`, `prompts/` and (re)creates the symlinks under the matching `~/.pi/agent/<kind>/`. Handy after a fresh clone or when adding several entries at once.
-- [ ] `scripts/doctor.sh` — sanity check that every entry in this repo has a matching symlink under `~/.pi/agent/`, and flag orphan symlinks (broken or pointing outside this repo).
+- [x] `scripts/link.sh` — idempotent script that walks `extensions/`, `agents/`, `skills/`, `themes/`, `prompts/` (+ `APPEND_SYSTEM.md`) and (re)creates the symlinks under the matching `~/.pi/agent/<kind>/`. Handy after a fresh clone or when adding several entries at once.
+- [x] `scripts/doctor.sh` — sanity check that every entry in this repo has a matching symlink under `~/.pi/agent/`, and flag orphan symlinks (broken or pointing outside this repo).
 - [ ] `scripts/sync-settings.sh` — reverse of `apply-settings.sh`: pull values from the live `~/.pi/agent/settings.json` back into `settings/settings.json`, but only for keys we already track. Useful after tweaking via pi's `/settings` UI.
-- [ ] Decide on a remote (GitHub? private?) and push.
+- [x] Decide on a remote (GitHub? private?) and push. → `git@github.com:Robfz/pi-extensions.git`
 - [ ] CI: run `tsc --noEmit` on push so type regressions are caught even though pi doesn't need a build.
 - [ ] Pin `@earendil-works/pi-coding-agent` to the exact installed version in `package.json`, or auto-sync it from the globally installed one.
 

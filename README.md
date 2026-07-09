@@ -19,7 +19,7 @@ pi loads each of these from a directory under `~/.pi/agent/`. This repo keeps th
 ├── prompts/           # .md prompt templates → ~/.pi/agent/prompts/         (symlinked)
 ├── settings/          # curated settings.json → ~/.pi/agent/settings.json   (merged via script)
 ├── APPEND_SYSTEM.md   # appended to system prompt → ~/.pi/agent/APPEND_SYSTEM.md (symlinked)
-├── scripts/           # apply-settings.sh; link.sh / doctor.sh (planned)
+├── scripts/           # apply-settings.sh, link.sh, doctor.sh
 ├── package.json       # devDeps only: @earendil-works/pi-coding-agent for types
 ├── tsconfig.json      # editor-only; pi loads .ts directly, no build step
 ├── README.md
@@ -53,7 +53,7 @@ For extensions / skills / themes / prompts, see the per-directory README for the
 3. Start a new pi session (or restart) to pick it up.
 4. Commit.
 
-A `scripts/link.sh` is planned (see [TODO.md](TODO.md)) to do step 2 for every entry at once.
+`scripts/link.sh` does step 2 for every entry at once (idempotent — safe after a fresh clone), and `scripts/doctor.sh` verifies the wiring.
 
 For settings: add the key to `settings/settings.json`, run `scripts/apply-settings.sh`, commit. See [`settings/README.md`](settings/README.md).
 

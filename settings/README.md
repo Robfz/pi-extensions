@@ -33,6 +33,9 @@ A `scripts/sync-settings.sh` to automate the live → repo direction (filtered t
 | `theme` | `"dark"` | Built-in dark theme. |
 | `editorPaddingX` | `1` | Small horizontal breathing room in the input editor. |
 | `treeFilterMode` | `"no-tools"` | Hide tool calls in `/tree` by default; I want to see user/assistant turns, not the noise. |
+| `packages` | `["npm:pi-web-access", "npm:pi-mcp-adapter"]` | Pi packages to auto-install; pi reconciles missing ones on startup. See `docs/packages.md`. |
+
+**Note on `packages`:** the jq merge replaces arrays wholesale, so this list is authoritative — a package added ad-hoc via `pi install` will be dropped from the live settings on the next `apply-settings.sh`. To keep a package, add it here and commit.
 
 ## Machine-local keys
 

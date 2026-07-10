@@ -4,5 +4,9 @@
   "defaultThinkingLevel": "high",
   "theme": "dark",
   "editorPaddingX": 1,
-  "treeFilterMode": "no-tools"
+  "treeFilterMode": "no-tools",
+  "packages": [
+    "npm:pi-web-access",
+    "npm:pi-mcp-adapter"
+  ]
 }

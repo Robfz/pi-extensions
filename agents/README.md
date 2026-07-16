@@ -26,15 +26,15 @@ ln -s "$PWD/agents/<name>.md" ~/.pi/agent/agents/<name>.md
 
 Directory is named `agents/` (not `agent-defs/` or `subagents/`) to match the upstream path 1:1 so the symlink mapping is trivial.
 
-Bundled agents (verbatim from the upstream `subagent` extension example):
+Bundled agents (from the upstream `subagent` extension example; descriptions locally sharpened for routing):
 
 | Agent | Purpose | Model | Tools |
 |---|---|---|---|
 | `scout` | Fast codebase recon, returns compressed context for handoff | Haiku | read, grep, find, ls, bash |
 | `planner` | Implementation plans from context | Sonnet | read, grep, find, ls |
-| `worker` | General-purpose, full capabilities, isolated context | Sonnet | (all default) |
+| `worker` | General-purpose, full capabilities; default for work requiring judgment | Sonnet | (all default) |
 | `reviewer` | Code review (read-only bash for `git diff`/`log`/`show`) | Sonnet | read, grep, find, ls, bash |
-| `cursor-worker` | Worker on Cursor CLI (`runner: cursor`) | Composer 2.5 Fast | (all cursor-agent tools) |
+| `cursor-worker` | Cheap/fast worker on Cursor CLI (`runner: cursor`); prefer for mechanical or bulk edits | Composer 2.5 Fast | (all cursor-agent tools) |
 
 Local additions:
 

@@ -1,6 +1,6 @@
 ---
 name: cursor-worker
-description: General-purpose worker running on Cursor CLI (Composer 2.5 Fast) with full write access, isolated context
+description: Fast, cheap worker on Cursor CLI (Composer 2.5 Fast, ~6x cheaper than Sonnet) with full write access, isolated context. Prefer over worker for mechanical or bulk work — repetitive edits, renames, boilerplate, test scaffolding — where top-tier reasoning isn't needed.
 runner: cursor
 model: composer-2.5-fast
 ---

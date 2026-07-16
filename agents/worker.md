@@ -1,6 +1,6 @@
 ---
 name: worker
-description: General-purpose subagent with full capabilities, isolated context
+description: General-purpose subagent with full capabilities, isolated context. Default choice for delegated implementation work that requires judgment (design decisions, tricky refactors, production-critical code).
 model: claude-sonnet-5
 ---
 

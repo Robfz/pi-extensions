@@ -837,6 +837,9 @@ const SubagentParams = Type.Object({
 });
 
 export default function (pi: ExtensionAPI) {
+	// Advertise user-scope agents in the tool description so the model knows what exists
+	// without a failed probe call. Discovered once at registration; execute() re-discovers.
+	const startupAgents = discoverAgents(process.cwd(), "user").agents;
 	pi.registerTool({
 		name: "subagent",
 		label: "Subagent",
@@ -845,6 +848,9 @@ export default function (pi: ExtensionAPI) {
 			"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
 			'Default agent scope is "user" (from ~/.pi/agent/agents).',
 			'To enable project-local agents in .pi/agents, set agentScope: "both" (or "project").',
+			...(startupAgents.length > 0
+				? [`Available user agents: ${startupAgents.map((a) => `${a.name} — ${a.description}`).join("; ")}`]
+				: []),
 		].join(" "),
 		parameters: SubagentParams,
 

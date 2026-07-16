@@ -40,6 +40,7 @@ The bundled prompts under [`../../prompts/`](../../prompts/) (`implement.md`, `s
 ## Departures from upstream
 
 - **Cursor runner** (`agents.ts`, `index.ts`): agents can declare `runner: cursor` in frontmatter to execute on Cursor's `cursor-agent` CLI (headless mode, Composer 2.5 et al.) instead of a `pi` subprocess. See [`../../agents/README.md`](../../agents/README.md) for frontmatter semantics.
+- **Dynamic tool description** (`index.ts`): user-scope agents discovered at registration are listed (name + description) in the `subagent` tool description, so the model knows what's available without a failed probe call. New agent files need a session restart to be advertised (invocation itself always uses fresh discovery).
 - **Claude runner** (`agents.ts`, `index.ts`): agents can declare `runner: claude` to execute on Claude Code headless. Motivation: access MCP servers with client allowlists (e.g. Figma's remote MCP, which rejects pi) through Claude Code's authenticated config — see the `figma-explorer` agent. See [`../../agents/README.md`](../../agents/README.md) for frontmatter semantics.
 
 ## Reference

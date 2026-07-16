@@ -8,8 +8,10 @@ import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 
 export type AgentScope = "user" | "project" | "both";
 
-/** Which CLI executes the agent: pi (default) or Cursor's cursor-agent. */
-export type AgentRunner = "pi" | "cursor";
+/** Which CLI executes the agent: pi (default), Cursor's cursor-agent, or Claude Code's claude. */
+export type AgentRunner = "pi" | "cursor" | "claude";
+
+const VALID_RUNNERS: readonly string[] = ["pi", "cursor", "claude"];
 
 export interface AgentConfig {
 	name: string;
@@ -65,14 +67,14 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			.filter(Boolean);
 
 		// Skip invalid runner values so typos surface as "Unknown agent" instead of silently using pi.
-		if (frontmatter.runner && frontmatter.runner !== "pi" && frontmatter.runner !== "cursor") {
+		if (frontmatter.runner && !VALID_RUNNERS.includes(frontmatter.runner)) {
 			continue;
 		}
 
 		agents.push({
 			name: frontmatter.name,
 			description: frontmatter.description,
-			runner: frontmatter.runner === "cursor" ? "cursor" : "pi",
+			runner: (frontmatter.runner as AgentRunner) || "pi",
 			tools: tools && tools.length > 0 ? tools : undefined,
 			model: frontmatter.model,
 			systemPrompt: body,

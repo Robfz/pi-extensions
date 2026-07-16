@@ -2,10 +2,11 @@
  * Subagent Tool - Delegate tasks to specialized agents
  *
  * Spawns a separate child process for each subagent invocation,
- * giving it an isolated context window. Agents run on one of two
+ * giving it an isolated context window. Agents run on one of three
  * runners (frontmatter `runner:`):
  *   - pi (default): `pi --mode json -p --no-session`
  *   - cursor: `cursor-agent -p --output-format stream-json --force --trust`
+ *   - claude: `claude -p --output-format stream-json --verbose` (Claude Code)
  *
  * Supports three modes:
  *   - Single: { agent: "name", task: "..." }
@@ -274,6 +275,17 @@ const CURSOR_TOOL_NAME_MAP: Record<string, string> = {
 	glob: "find",
 };
 
+/** Map Claude Code tool names to pi tool names for rendering. MCP tools (mcp__*) pass through. */
+const CLAUDE_TOOL_NAME_MAP: Record<string, string> = {
+	Bash: "bash",
+	Read: "read",
+	Edit: "edit",
+	Write: "write",
+	Grep: "grep",
+	Glob: "find",
+	LS: "ls",
+};
+
 /**
  * Extract a tool name, args, and (for completed events) result from a
  * cursor-agent `tool_call` event payload. Payloads are either
@@ -375,12 +387,17 @@ async function runSingleAgent(
 	}
 
 	const isCursor = agent.runner === "cursor";
+	const isClaude = agent.runner === "claude";
 	const args: string[] = isCursor
 		? ["-p", "--output-format", "stream-json", "--force", "--trust"]
-		: ["--mode", "json", "-p", "--no-session"];
+		: isClaude
+			? ["-p", "--output-format", "stream-json", "--verbose"] // stream-json requires --verbose
+			: ["--mode", "json", "-p", "--no-session"];
 	if (agent.model) args.push("--model", agent.model);
 	// cursor-agent has no tool allowlist flag; `tools:` frontmatter is ignored for cursor agents.
-	if (!isCursor && agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
+	// For claude, `tools:` maps to --allowedTools (auto-approval; in -p mode unapproved tools are denied).
+	if (isClaude && agent.tools && agent.tools.length > 0) args.push("--allowedTools", agent.tools.join(","));
+	if (!isCursor && !isClaude && agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
 
 	let tmpPromptDir: string | null = null;
 	let tmpPromptPath: string | null = null;
@@ -406,6 +423,8 @@ async function runSingleAgent(
 		}
 	};
 
+	let claudeStdinPrompt: string | null = null;
+
 	try {
 		if (isCursor) {
 			// cursor-agent has no system prompt flag; embed the agent definition in the prompt.
@@ -415,6 +434,11 @@ async function runSingleAgent(
 					? `<agent-instructions>\n${systemPrompt}\n</agent-instructions>\n\nTask: ${task}`
 					: `Task: ${task}`,
 			);
+		} else if (isClaude) {
+			// claude supports a system prompt flag natively; the task goes via stdin so it can't
+			// be swallowed by variadic flags like --allowedTools.
+			if (agent.systemPrompt.trim()) args.push("--append-system-prompt", agent.systemPrompt.trim());
+			claudeStdinPrompt = `Task: ${task}`;
 		} else {
 			if (agent.systemPrompt.trim()) {
 				const tmp = await writePromptToTempFile(agent.name, agent.systemPrompt);
@@ -425,16 +449,24 @@ async function runSingleAgent(
 			args.push(`Task: ${task}`);
 		}
 		let wasAborted = false;
-		let sawCursorResult = false;
+		let sawTerminalResult = false;
 		const startedAt = Date.now();
 
 		const exitCode = await new Promise<number>((resolve) => {
-			const invocation = isCursor ? { command: "cursor-agent", args } : getPiInvocation(args);
+			const invocation = isCursor
+				? { command: "cursor-agent", args }
+				: isClaude
+					? { command: "claude", args }
+					: getPiInvocation(args);
 			const proc = spawn(invocation.command, invocation.args, {
 				cwd: cwd ?? defaultCwd,
 				shell: false,
-				stdio: ["ignore", "pipe", "pipe"],
+				stdio: [claudeStdinPrompt !== null ? "pipe" : "ignore", "pipe", "pipe"],
 			});
+			if (claudeStdinPrompt !== null) {
+				proc.stdin?.write(claudeStdinPrompt);
+				proc.stdin?.end();
+			}
 			let buffer = "";
 
 			const processPiLine = (line: string) => {
@@ -474,13 +506,13 @@ async function runSingleAgent(
 				}
 			};
 
-			// Builds pi-shaped assistant messages from cursor-agent NDJSON events so the
-			// downstream pipeline (getFinalOutput, getDisplayItems, rendering) is shared.
-			const makeCursorAssistantMessage = (content: Extract<Message, { role: "assistant" }>["content"]): Message => ({
+			// Builds pi-shaped assistant messages from external-runner NDJSON events (cursor/claude)
+			// so the downstream pipeline (getFinalOutput, getDisplayItems, rendering) is shared.
+			const makeExternalAssistantMessage = (content: Extract<Message, { role: "assistant" }>["content"]): Message => ({
 				role: "assistant",
 				content,
-				api: "cursor-agent",
-				provider: "cursor",
+				api: isClaude ? "claude-code" : "cursor-agent",
+				provider: isClaude ? "anthropic" : "cursor",
 				model: currentResult.model ?? "unknown",
 				usage: {
 					input: 0,
@@ -520,7 +552,7 @@ async function runSingleAgent(
 							.map((p: any) => p.text)
 							.join("");
 						if (!text.trim()) break;
-						currentResult.messages.push(makeCursorAssistantMessage([{ type: "text", text }]));
+						currentResult.messages.push(makeExternalAssistantMessage([{ type: "text", text }]));
 						currentResult.usage.turns++;
 						emitUpdate();
 						break;
@@ -543,7 +575,7 @@ async function runSingleAgent(
 						if (!id) break;
 						if (event.subtype === "started") {
 							currentResult.messages.push(
-								makeCursorAssistantMessage([{ type: "toolCall", id, name: parsed.name, arguments: parsed.args }]),
+								makeExternalAssistantMessage([{ type: "toolCall", id, name: parsed.name, arguments: parsed.args }]),
 							);
 							emitUpdate();
 						} else if (event.subtype === "completed") {
@@ -561,7 +593,7 @@ async function runSingleAgent(
 						break;
 					}
 					case "result": {
-						sawCursorResult = true;
+						sawTerminalResult = true;
 						if (event.usage && typeof event.usage === "object" && event.usage !== null) {
 							const u = event.usage as Record<string, unknown>;
 							if (typeof u.inputTokens === "number") currentResult.usage.input += u.inputTokens || 0;
@@ -582,7 +614,7 @@ async function runSingleAgent(
 								typeof event.result === "string" &&
 								event.result.trim()
 							) {
-								currentResult.messages.push(makeCursorAssistantMessage([{ type: "text", text: event.result }]));
+								currentResult.messages.push(makeExternalAssistantMessage([{ type: "text", text: event.result }]));
 							}
 						}
 						emitUpdate();
@@ -591,16 +623,132 @@ async function runSingleAgent(
 				}
 			};
 
-			const processLine = isCursor ? processCursorLine : processPiLine;
+			// Tool names for claude tool_result events (which only carry tool_use_id).
+			const claudeToolNames = new Map<string, string>();
+			const processClaudeLine = (line: string) => {
+				if (!line.trim()) return;
+				let event: any;
+				try {
+					event = JSON.parse(line);
+				} catch {
+					return;
+				}
 
-			proc.stdout.on("data", (data) => {
+				switch (event.type) {
+					case "system": {
+						if (event.subtype === "init" && typeof event.model === "string" && event.model) {
+							currentResult.model = event.model;
+						}
+						break;
+					}
+					case "assistant": {
+						// One event per complete assistant API message (text and/or tool_use blocks).
+						const blocks = Array.isArray(event.message?.content) ? event.message.content : [];
+						const content: Extract<Message, { role: "assistant" }>["content"] = [];
+						for (const block of blocks) {
+							if (block?.type === "text" && typeof block.text === "string" && block.text.trim()) {
+								content.push({ type: "text", text: block.text });
+							} else if (block?.type === "tool_use" && typeof block.id === "string") {
+								const name = CLAUDE_TOOL_NAME_MAP[block.name] ?? String(block.name ?? "unknown");
+								claudeToolNames.set(block.id, name);
+								content.push({
+									type: "toolCall",
+									id: block.id,
+									name,
+									arguments: block.input && typeof block.input === "object" ? block.input : {},
+								});
+							}
+						}
+						if (content.length === 0) break;
+						if (typeof event.message?.model === "string" && event.message.model) {
+							currentResult.model = event.message.model;
+						}
+						currentResult.messages.push(makeExternalAssistantMessage(content));
+						currentResult.usage.turns++;
+						emitUpdate();
+						break;
+					}
+					case "user": {
+						// Tool results come back as user messages with tool_result blocks.
+						const blocks = Array.isArray(event.message?.content) ? event.message.content : [];
+						for (const block of blocks) {
+							if (block?.type !== "tool_result" || typeof block.tool_use_id !== "string") continue;
+							let text: string;
+							if (typeof block.content === "string") {
+								text = block.content;
+							} else if (Array.isArray(block.content)) {
+								text = block.content
+									.filter((p: any) => p?.type === "text" && typeof p.text === "string")
+									.map((p: any) => p.text)
+									.join("\n");
+							} else {
+								text = "(no result)";
+							}
+							if (text.length > CURSOR_TOOL_RESULT_CAP) {
+								text = `${text.slice(0, CURSOR_TOOL_RESULT_CAP)}\n[truncated]`;
+							}
+							const isError = block.is_error === true;
+							currentResult.messages.push({
+								role: "toolResult",
+								toolCallId: block.tool_use_id,
+								toolName: claudeToolNames.get(block.tool_use_id) ?? "unknown",
+								content: [{ type: "text", text: isError ? `[error] ${text}` : text }],
+								isError,
+								timestamp: Date.now(),
+							});
+							emitUpdate();
+						}
+						break;
+					}
+					case "result": {
+						sawTerminalResult = true;
+						const u = event.usage;
+						if (u && typeof u === "object") {
+							if (typeof u.input_tokens === "number") currentResult.usage.input += u.input_tokens;
+							if (typeof u.output_tokens === "number") currentResult.usage.output += u.output_tokens;
+							if (typeof u.cache_read_input_tokens === "number")
+								currentResult.usage.cacheRead += u.cache_read_input_tokens;
+							if (typeof u.cache_creation_input_tokens === "number")
+								currentResult.usage.cacheWrite += u.cache_creation_input_tokens;
+						}
+						if (typeof event.total_cost_usd === "number") currentResult.usage.cost += event.total_cost_usd;
+						if (typeof event.num_turns === "number" && event.num_turns > 0) {
+							currentResult.usage.turns = event.num_turns;
+						}
+						if (event.is_error || (typeof event.subtype === "string" && event.subtype !== "success")) {
+							currentResult.stopReason = "error";
+							if (typeof event.result === "string" && event.result.trim()) {
+								currentResult.errorMessage = event.result;
+							} else if (typeof event.subtype === "string" && event.subtype !== "success") {
+								currentResult.errorMessage = event.subtype;
+							}
+						} else {
+							currentResult.stopReason = "stop";
+							// Fallback: if no assistant text was streamed, use the aggregated result.
+							if (
+								!getFinalOutput(currentResult.messages) &&
+								typeof event.result === "string" &&
+								event.result.trim()
+							) {
+								currentResult.messages.push(makeExternalAssistantMessage([{ type: "text", text: event.result }]));
+							}
+						}
+						emitUpdate();
+						break;
+					}
+				}
+			};
+
+			const processLine = isCursor ? processCursorLine : isClaude ? processClaudeLine : processPiLine;
+
+			proc.stdout?.on("data", (data) => {
 				buffer += data.toString();
 				const lines = buffer.split("\n");
 				buffer = lines.pop() || "";
 				for (const line of lines) processLine(line);
 			});
 
-			proc.stderr.on("data", (data) => {
+			proc.stderr?.on("data", (data) => {
 				currentResult.stderr += data.toString();
 			});
 
@@ -613,6 +761,9 @@ async function runSingleAgent(
 				currentResult.stderr += `Failed to spawn "${invocation.command}": ${err.message}\n`;
 				if (isCursor && err.code === "ENOENT") {
 					currentResult.stderr += "Cursor CLI not found. Install: curl https://cursor.com/install -fsS | bash\n";
+				}
+				if (isClaude && err.code === "ENOENT") {
+					currentResult.stderr += "Claude Code not found. Install: npm install -g @anthropic-ai/claude-code\n";
 				}
 				resolve(1);
 			});
@@ -632,10 +783,10 @@ async function runSingleAgent(
 
 		currentResult.exitCode = exitCode;
 		currentResult.durationMs = Date.now() - startedAt;
-		if (isCursor && exitCode === 0 && !wasAborted && !sawCursorResult) {
+		if ((isCursor || isClaude) && exitCode === 0 && !wasAborted && !sawTerminalResult) {
 			currentResult.stopReason = "error";
 			if (!currentResult.errorMessage) {
-				currentResult.errorMessage = "cursor-agent exited without emitting a terminal result event";
+				currentResult.errorMessage = `${isCursor ? "cursor-agent" : "claude"} exited without emitting a terminal result event`;
 			}
 		}
 		if (wasAborted) throw new Error("Subagent was aborted");

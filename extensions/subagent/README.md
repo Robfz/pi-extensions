@@ -17,7 +17,9 @@ Each invocation spawns a fresh subprocess per the agent's `runner`:
 - **`pi` (default):** `pi --mode json -p --no-session` with the agent's system prompt (temp file via `--append-system-prompt`) and tool/model allowlist; parses `message_end` / `tool_result_end` JSON events.
 - **`cursor`:** `cursor-agent -p --output-format stream-json --force --trust` with the system prompt embedded in the prompt (`<agent-instructions>` tags); parses cursor NDJSON events (`system/init` → model, `assistant` → text turns, `tool_call` started/completed → tool call + tool result messages, `result` → stop reason / fallback text) into the same `Message[]` shape so streaming, chaining, and rendering are shared. `tools:` frontmatter is ignored (cursor-agent has no allowlist flag); token usage comes from the terminal `result` event (no dollar cost or context size), and a cursor run that exits 0 without a terminal `result` event is treated as an error.
 
-Both stream progress into the TUI (collapsed by default, Ctrl+O to expand). `AbortSignal` propagates as SIGTERM → SIGKILL.
+- **`claude`:** `claude -p --output-format stream-json --verbose` (Claude Code headless) with the system prompt via `--append-system-prompt` and the task via stdin; parses claude NDJSON events (`system/init` → model, `assistant` → text + `tool_use` blocks, `user` → `tool_result` blocks, `result` → usage/cost/turns/stop reason/fallback text) into the same `Message[]` shape. `tools:` frontmatter maps to `--allowedTools` (auto-approval; in `-p` mode unapproved tools are denied). Runs against the user's normal Claude Code config, so installed plugins/MCP servers and their auth apply. A claude run that exits 0 without a terminal `result` event is treated as an error.
+
+All runners stream progress into the TUI (collapsed by default, Ctrl+O to expand). `AbortSignal` propagates as SIGTERM → SIGKILL.
 
 ## Agent definitions
 
@@ -38,6 +40,7 @@ The bundled prompts under [`../../prompts/`](../../prompts/) (`implement.md`, `s
 ## Departures from upstream
 
 - **Cursor runner** (`agents.ts`, `index.ts`): agents can declare `runner: cursor` in frontmatter to execute on Cursor's `cursor-agent` CLI (headless mode, Composer 2.5 et al.) instead of a `pi` subprocess. See [`../../agents/README.md`](../../agents/README.md) for frontmatter semantics.
+- **Claude runner** (`agents.ts`, `index.ts`): agents can declare `runner: claude` to execute on Claude Code headless. Motivation: access MCP servers with client allowlists (e.g. Figma's remote MCP, which rejects pi) through Claude Code's authenticated config — see the `figma-explorer` agent. See [`../../agents/README.md`](../../agents/README.md) for frontmatter semantics.
 
 ## Reference
 

@@ -7,7 +7,8 @@
 #   1. Every repo entry (extensions/agents/skills/themes/prompts, plus
 #      APPEND_SYSTEM.md) has a symlink under ~/.pi/agent/ pointing at it.
 #   2. Every entry inside ~/.pi/agent/<kind>/ is a symlink into this repo —
-#      flags real files, broken symlinks, and symlinks pointing elsewhere.
+#      flags real files, broken symlinks, and symlinks pointing elsewhere,
+#      except integrations explicitly managed by another application.
 #
 # Exits 0 when everything checks out, 1 otherwise. Fix problems with
 # scripts/link.sh (or by hand for real-file conflicts).
@@ -54,6 +55,11 @@ for kind in $KINDS; do
   [ -d "$live_dir" ] || continue
   for dst in "$live_dir"/*; do
     [ -e "$dst" ] || [ -L "$dst" ] || continue # empty dir
+    # Herdr installs and updates its Pi state bridge as a real file.
+    if [ "$kind/$(basename "$dst")" = "extensions/herdr-agent-state.ts" ] &&
+       [ -f "$dst" ] && [ ! -L "$dst" ]; then
+      continue
+    fi
     if [ ! -L "$dst" ]; then
       echo "real:     $dst is not a symlink (should live in this repo)"
       problems=$((problems + 1))

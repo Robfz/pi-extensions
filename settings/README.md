@@ -28,7 +28,7 @@ A `scripts/sync-settings.sh` to automate the live → repo direction (filtered t
 | Key | Value | Why |
 |-----|-------|-----|
 | `defaultProvider` | `"anthropic"` | Default model provider. |
-| `defaultModel` | `"claude-fable-5"` | Preferred default model. |
+| `defaultModel` | `"claude-fable-5-1"` | Preferred default model. |
 | `defaultThinkingLevel` | `"high"` | I want generous thinking budget by default. |
 | `theme` | `"dark"` | Built-in dark theme. |
 | `editorPaddingX` | `1` | Small horizontal breathing room in the input editor. |

@@ -6,6 +6,7 @@
  * runners (frontmatter `runner:`):
  *   - pi (default): `pi --mode json -p --no-session`
  *   - cursor: `cursor-agent -p --output-format stream-json --force --trust`
+ *     (optional frontmatter `mode: plan|ask` maps to `--mode` for read-only runs)
  *   - claude: `claude -p --output-format stream-json --verbose` (Claude Code)
  *
  * Supports three modes:
@@ -394,6 +395,8 @@ async function runSingleAgent(
 			? ["-p", "--output-format", "stream-json", "--verbose"] // stream-json requires --verbose
 			: ["--mode", "json", "-p", "--no-session"];
 	if (agent.model) args.push("--model", agent.model);
+	// cursor-agent supports --mode plan/ask (CLI-enforced read-only); other runners have no equivalent.
+	if (isCursor && agent.mode) args.push("--mode", agent.mode);
 	// cursor-agent has no tool allowlist flag; `tools:` frontmatter is ignored for cursor agents.
 	// For claude, `tools:` maps to --allowedTools (auto-approval; in -p mode unapproved tools are denied).
 	if (isClaude && agent.tools && agent.tools.length > 0) args.push("--allowedTools", agent.tools.join(","));

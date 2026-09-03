@@ -13,12 +13,19 @@ export type AgentRunner = "pi" | "cursor" | "claude";
 
 const VALID_RUNNERS: readonly string[] = ["pi", "cursor", "claude"];
 
+/** Execution mode for the cursor runner: plan (read-only) or ask (Q&A, read-only). */
+export type AgentMode = "plan" | "ask";
+
+const VALID_MODES: readonly string[] = ["plan", "ask"];
+
 export interface AgentConfig {
 	name: string;
 	description: string;
 	runner: AgentRunner;
 	tools?: string[];
 	model?: string;
+	/** Only used by the cursor runner (maps to `cursor-agent --mode`). */
+	mode?: AgentMode;
 	systemPrompt: string;
 	source: "user" | "project";
 	filePath: string;
@@ -71,12 +78,20 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			continue;
 		}
 
+		// Skip invalid mode values for the same reason. `mode` is only enforced by the cursor
+		// runner, so reject it elsewhere rather than silently running without the promised
+		// read-only restriction.
+		if (frontmatter.mode && (!VALID_MODES.includes(frontmatter.mode) || frontmatter.runner !== "cursor")) {
+			continue;
+		}
+
 		agents.push({
 			name: frontmatter.name,
 			description: frontmatter.description,
 			runner: (frontmatter.runner as AgentRunner) || "pi",
 			tools: tools && tools.length > 0 ? tools : undefined,
 			model: frontmatter.model,
+			mode: frontmatter.mode as AgentMode | undefined,
 			systemPrompt: body,
 			source,
 			filePath,

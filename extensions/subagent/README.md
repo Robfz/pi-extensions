@@ -15,7 +15,7 @@ Registers one tool, `subagent`, that delegates work to focused child agents. Thr
 Each invocation spawns a fresh subprocess per the agent's `runner`:
 
 - **`pi` (default):** `pi --mode json -p --no-session` with the agent's system prompt (temp file via `--append-system-prompt`) and tool/model allowlist; parses `message_end` / `tool_result_end` JSON events.
-- **`cursor`:** `cursor-agent -p --output-format stream-json --force --trust` with the system prompt embedded in the prompt (`<agent-instructions>` tags); parses cursor NDJSON events (`system/init` → model, `assistant` → text turns, `tool_call` started/completed → tool call + tool result messages, `result` → stop reason / fallback text) into the same `Message[]` shape so streaming, chaining, and rendering are shared. `tools:` frontmatter is ignored (cursor-agent has no allowlist flag); token usage comes from the terminal `result` event (no dollar cost or context size), and a cursor run that exits 0 without a terminal `result` event is treated as an error.
+- **`cursor`:** `cursor-agent -p --output-format stream-json --force --trust` with the system prompt embedded in the prompt (`<agent-instructions>` tags); parses cursor NDJSON events (`system/init` → model, `assistant` → text turns, `tool_call` started/completed → tool call + tool result messages, `result` → stop reason / fallback text) into the same `Message[]` shape so streaming, chaining, and rendering are shared. `tools:` frontmatter is ignored (cursor-agent has no allowlist flag); `mode:` frontmatter (`plan` or `ask`) maps to `--mode` for CLI-enforced read-only execution; token usage comes from the terminal `result` event (no dollar cost or context size), and a cursor run that exits 0 without a terminal `result` event is treated as an error.
 
 - **`claude`:** `claude -p --output-format stream-json --verbose` (Claude Code headless) with the system prompt via `--append-system-prompt` and the task via stdin; parses claude NDJSON events (`system/init` → model, `assistant` → text + `tool_use` blocks, `user` → `tool_result` blocks, `result` → usage/cost/turns/stop reason/fallback text) into the same `Message[]` shape. `tools:` frontmatter maps to `--allowedTools` (auto-approval; in `-p` mode unapproved tools are denied). Runs against the user's normal Claude Code config, so installed plugins/MCP servers and their auth apply. A claude run that exits 0 without a terminal `result` event is treated as an error.
 
@@ -23,7 +23,7 @@ All runners stream progress into the TUI (collapsed by default, Ctrl+O to expand
 
 ## Agent definitions
 
-See [`../../agents/`](../../agents/). Agents are markdown files with YAML frontmatter (`name`, `description`, `tools?`, `model?`, `runner?`).
+See [`../../agents/`](../../agents/). Agents are markdown files with YAML frontmatter (`name`, `description`, `tools?`, `model?`, `runner?`, `mode?` — cursor only: `plan`/`ask` for CLI-enforced read-only).
 
 - `~/.pi/agent/agents/*.md` — user scope (always loaded).
 - `.pi/agents/*.md` — project scope. **Default is `agentScope: "user"`.** Project agents are opt-in via `agentScope: "both"` or `"project"`; when running interactively the tool prompts for confirmation the first time a project agent is invoked (unless `confirmProjectAgents: false`).

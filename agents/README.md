@@ -41,6 +41,7 @@ Local additions:
 | Agent | Purpose | Model | Tools |
 |---|---|---|---|
 | `figma-explorer` | Explore a Figma node URL via the Figma remote MCP, report implementation-ready specs (`runner: claude`) | Sonnet | `mcp__figma` (allowed) |
+| `cross-reviewer` | Cross-model code review from an OpenAI model — independent eyes vs. Anthropic/Cursor authors (`runner: cursor`, `mode: plan`) | GPT-5.6 Terra Medium | read-only (plan mode) |
 
 ## Cursor runner
 

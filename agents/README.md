@@ -30,10 +30,10 @@ Bundled agents (from the upstream `subagent` extension example; descriptions loc
 
 | Agent | Purpose | Model | Tools |
 |---|---|---|---|
-| `scout` | Fast codebase recon, returns compressed context for handoff | Haiku | read, grep, find, ls, bash |
-| `planner` | Implementation plans from context | Sonnet | read, grep, find, ls |
-| `worker` | General-purpose, full capabilities; default for work requiring judgment | Sonnet | (all default) |
-| `reviewer` | Code review (read-only bash for `git diff`/`log`/`show`) | Sonnet | read, grep, find, ls, bash |
+| `scout` | Fast codebase recon, returns compressed context for handoff | Sonnet 5 | read, grep, find, ls, bash |
+| `planner` | Implementation plans from context | Fable 5.1 | read, grep, find, ls |
+| `worker` | General-purpose, full capabilities; default for work requiring judgment | Opus 5 | (all default) |
+| `reviewer` | Code review (read-only bash for `git diff`/`log`/`show`) | Opus 5 | read, grep, find, ls, bash |
 | `cursor-worker` | Cheap/fast worker on Cursor CLI (`runner: cursor`); prefer for mechanical or bulk edits | Composer 2.5 Fast | (all cursor-agent tools) |
 
 Local additions:

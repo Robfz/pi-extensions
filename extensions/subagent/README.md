@@ -45,5 +45,5 @@ The bundled prompts under [`../../prompts/`](../../prompts/) (`implement.md`, `s
 
 ## Reference
 
-- Upstream source: `~/.asdf/installs/nodejs/24.15.0/lib/node_modules/@earendil-works/pi-coding-agent/examples/extensions/subagent/` (also at `packages/coding-agent/examples/extensions/subagent/` in [earendil-works/pi](https://github.com/earendil-works/pi)).
+- Upstream source: `$(npm root -g)/@earendil-works/pi-coding-agent/examples/extensions/subagent/` (also at `packages/coding-agent/examples/extensions/subagent/` in [earendil-works/pi](https://github.com/earendil-works/pi)).
 - Docs: `docs/extensions.md` (extension API), `docs/prompt-templates.md` (workflow prompts) in the installed pi package.

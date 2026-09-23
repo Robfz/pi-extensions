@@ -2,7 +2,7 @@
 
 Canonical home for my customizations to the [pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent): extensions, skills, themes, prompt templates, and settings.
 
-pi loads each of these from a directory under `~/.pi/agent/`. This repo keeps the real source under version control; everything in `~/.pi/agent/{extensions,skills,themes,prompts}/` should be a symlink into the matching directory here. Settings are handled differently — see [`settings/`](settings/README.md).
+pi loads each of these from a directory under `~/.pi/agent/`. This repo keeps the real source under version control; everything in `~/.pi/agent/{extensions,agents,skills,themes,prompts}/` should be a symlink into the matching directory here. Settings are handled differently — see [`settings/`](settings/README.md).
 
 ## Repo layout
 
@@ -20,7 +20,8 @@ pi loads each of these from a directory under `~/.pi/agent/`. This repo keeps th
 ├── settings/          # curated settings.json → ~/.pi/agent/settings.json   (merged via script)
 ├── APPEND_SYSTEM.md   # appended to system prompt → ~/.pi/agent/APPEND_SYSTEM.md (symlinked)
 ├── scripts/           # apply-settings.sh, link.sh, doctor.sh
-├── package.json       # devDeps only: @earendil-works/pi-coding-agent for types
+├── package.json       # devDeps only: @earendil-works/pi-* + typebox, for extension types
+├── package-lock.json
 ├── tsconfig.json      # editor-only; pi loads .ts directly, no build step
 ├── README.md
 └── TODO.md
@@ -40,9 +41,11 @@ Pi discovers each kind of customization by scanning a fixed directory under `~/.
 
 - editing a file in this repo edits what pi loads;
 - `git status` here is the source of truth;
-- nothing in `~/.pi/agent/{extensions,skills,themes,prompts}/` is "real" — every entry there should be a symlink into this repo.
+- nothing in `~/.pi/agent/{extensions,agents,skills,themes,prompts}/` is "real" — every entry there should be a symlink into this repo.
 
-Verify with `ls -la ~/.pi/agent/<kind>/`; every line should show `-> /Users/roberto/Dev/pi-extensions/<kind>/...`.
+Verify with `ls -la ~/.pi/agent/<kind>/`; every line should show `-> <path-to-this-repo>/<kind>/...`.
+
+One exception: Herdr, if installed, writes its pi state bridge to `~/.pi/agent/extensions/herdr-agent-state.ts` as a real file and updates it itself. It is not tracked here, and `scripts/doctor.sh` skips it.
 
 ## Adding something new
 
@@ -64,7 +67,7 @@ Just edit the file in this repo. The symlink means pi sees the change on next se
 If you want type-checking and autocomplete in your editor for extensions:
 
 ```sh
-npm install   # pulls @earendil-works/pi-coding-agent + typescript as devDeps
+npm install   # pulls the @earendil-works/pi-* packages, typebox, and typescript as devDeps
 ```
 
 ## Removing
@@ -128,15 +131,21 @@ Two flavors of exit (all triggers are case-insensitive and must be the entire me
 
 ### `subagent`
 
-Directory-form extension under [`extensions/subagent/`](extensions/subagent/). Near-verbatim vendor of the upstream subagent example from `@earendil-works/pi-coding-agent` (`examples/extensions/subagent/`), replacing the previous [`pi-subagents`](https://github.com/nicobailon/pi-subagents) npm package (~70 source files) with the leaner reference (`index.ts` + `agents.ts`, ~1.1 kloc).
+Directory-form extension under [`extensions/subagent/`](extensions/subagent/), vendored from the upstream example (`examples/extensions/subagent/` in `@earendil-works/pi-coding-agent`) with two local additions: external runners (Cursor CLI, Claude Code) and a tool description that lists the available agents.
 
-Registers one tool, `subagent`, with three modes: single (`{agent, task}`), parallel (`{tasks: […]}`, up to 8 / 4 concurrent / 50 KB per task), and chain (`{chain: […]}` with `{previous}` placeholder). Each call spawns a fresh `pi --mode json -p --no-session` subprocess per agent and streams JSON events back for collapsed/expanded TUI rendering.
+Registers one tool, `subagent`, with three modes: single (`{agent, task}`), parallel (`{tasks: […]}`, up to 8 / 4 concurrent / 50 KB output per task), and chain (`{chain: […]}` with `{previous}` placeholder). Each agent runs in a fresh subprocess chosen by its `runner:` frontmatter. Every runner's events are normalized into the same message shape, so streaming, chaining, and TUI rendering (collapsed by default, Ctrl+O to expand) are shared:
 
-Agent definitions live in [`agents/`](agents/) (user scope) and `.pi/agents/` per-project (opt-in via `agentScope: "both"`, with confirmation prompt). Workflow prompt templates that drive the tool's chain mode are in [`prompts/`](prompts/) (`implement`, `scout-and-plan`, `implement-and-review`).
+| Runner | Subprocess | Notes |
+|---|---|---|
+| `pi` (default) | `pi --mode json -p --no-session` | System prompt via `--append-system-prompt`; `tools:` / `model:` frontmatter map to pi's tool allowlist and model. |
+| `cursor` | `cursor-agent -p --output-format stream-json --force --trust` | `model:` takes Cursor slugs; `tools:` is ignored; `mode: plan` or `ask` gives CLI-enforced read-only runs. Needs `cursor-agent` on PATH and auth. |
+| `claude` | `claude -p --output-format stream-json --verbose` | Claude Code headless. `tools:` maps to `--allowedTools`; runs against the user's Claude Code config, so its MCP servers and auth apply — this is how `figma-explorer` reaches the Figma remote MCP, which rejects pi as a client. Needs `claude` on PATH and auth. |
 
-Dropped from the previous implementation, on purpose: async/background runs, slash commands like `/run` and `/subagents-doctor`, agent CRUD via `action`, forked-context spawning, worktree isolation, skills injection, control/attention tracking, and the `oracle`/`researcher`/`context-builder`/`delegate` builtins. If any of those turn out to be missed, layer them back in piecewise rather than reinstalling the heavyweight package.
+Agent definitions live in [`agents/`](agents/) (user scope, always loaded): `scout`, `planner`, `worker`, `reviewer` on pi; `cursor-worker`, `cross-reviewer` on cursor; `figma-explorer` on claude — see the table in [`agents/README.md`](agents/README.md). Project-scope agents in `.pi/agents/` are opt-in via `agentScope: "project"` or `"both"`; interactive sessions ask for confirmation the first time one is invoked (disable with `confirmProjectAgents: false`). User-scope agents discovered at startup are listed in the tool description so the model knows what's available; new agent files need a session restart to be advertised.
 
-See [`extensions/subagent/README.md`](extensions/subagent/README.md) for full details.
+Workflow prompt templates that drive chain mode live in [`prompts/`](prompts/) and surface as `/implement`, `/scout-and-plan`, `/implement-and-review`.
+
+Full runner details: [`extensions/subagent/README.md`](extensions/subagent/README.md) and [`agents/README.md`](agents/README.md).
 
 ### `label`
 
@@ -152,19 +161,26 @@ Adapted from the upstream `examples/extensions/bookmark.ts`, renamed to match pi
 
 ## Settings
 
-Tracked in [`settings/settings.json`](settings/settings.json), per-key rationale in [`settings/README.md`](settings/README.md). Highlights:
+Tracked in [`settings/settings.json`](settings/settings.json), per-key rationale in [`settings/README.md`](settings/README.md):
 
-- `defaultThinkingLevel: "high"` — generous default thinking budget.
-- `treeFilterMode: "no-tools"` — hide tool calls in `/tree` by default.
+| Key | Value |
+|---|---|
+| `defaultProvider` | `anthropic` |
+| `defaultModel` | `claude-fable-5-1` |
+| `defaultThinkingLevel` | `high` |
+| `theme` | `dark` |
+| `editorPaddingX` | `1` |
+| `treeFilterMode` | `no-tools` — hide tool calls in `/tree` |
+| `packages` | `npm:pi-web-access`, `npm:pi-mcp-adapter` — pi installs missing ones on startup |
 
-Apply with `scripts/apply-settings.sh` (idempotent, preserves pi's own writes like `lastChangelogVersion`).
+Apply with `scripts/apply-settings.sh` (idempotent, preserves pi's own writes like `lastChangelogVersion`). Note that the merge replaces `packages` wholesale, so this list is authoritative — a package added ad hoc via `pi install` is dropped on the next apply unless added here.
 
 ## Reference
 
-Pi's docs are installed alongside the npm package, at:
+Pi's docs are installed alongside the npm package:
 
-```
-~/.asdf/installs/nodejs/24.15.0/lib/node_modules/@earendil-works/pi-coding-agent/docs/
+```sh
+ls "$(npm root -g)/@earendil-works/pi-coding-agent/docs/"
 ```
 
 Most relevant: `extensions.md`, `skills.md`, `themes.md`, `prompt-templates.md`, plus `tui.md`, `rpc.md`, `sdk.md` for deeper APIs.

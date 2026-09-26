@@ -166,7 +166,7 @@ Tracked in [`settings/settings.json`](settings/settings.json), per-key rationale
 | Key | Value |
 |---|---|
 | `defaultProvider` | `anthropic` |
-| `defaultModel` | `claude-fable-5-1` |
+| `defaultModel` | `claude-opus-5-5` |
 | `defaultThinkingLevel` | `high` |
 | `theme` | `dark` |
 | `editorPaddingX` | `1` |

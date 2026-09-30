@@ -1,6 +1,6 @@
 # subagent extension
 
-Vendored, near-verbatim copy of the upstream subagent example from `@earendil-works/pi-coding-agent` (`examples/extensions/subagent/`). Replaces the previous heavyweight [`pi-subagents`](https://github.com/nicobailon/pi-subagents) npm package (~70 source files) with the leaner reference implementation (two source files, ~1.1 kloc) so we own the surface area and can tweak it from here.
+Vendored, near-verbatim copy of the upstream subagent example from `@earendil-works/pi-coding-agent` (`examples/extensions/subagent/`). Two source files (~1.1 kloc), small enough that we own the surface area and can tweak it here.
 
 ## What it does
 

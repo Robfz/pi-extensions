@@ -18,7 +18,7 @@
  *                When no name is set, renders "unnamed" in `dim`. Either is dropped if line 1
  *                has no room for it.
  * - model       model.name with a leading "Claude " stripped (so "Claude Opus 4.7" → "Opus 4.7"),
- *               colored `accent`
+ *               colored `text`
  * - effort      thinking level when model.reasoning is true; colored using pi's matching
  *               `thinking{Level}` theme keys (so "high" glows the way pi glows it elsewhere)
  * - rest        only `$cost [(sub)] [(sa $cost)] pct%/win`; the rest of pi's default stats (tokens,
@@ -250,7 +250,7 @@ function installFooter(initialCtx: ExtensionContext): void {
 						}
 					}
 				}
-				const modelColored = theme.fg("accent", modelName);
+				const modelColored = theme.fg("text", modelName);
 				let leftRaw: string;
 				let leftRawWidth: number;
 				if (effort !== null) {

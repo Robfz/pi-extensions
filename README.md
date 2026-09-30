@@ -20,6 +20,7 @@ pi loads each of these from a directory under `~/.pi/agent/`. This repo keeps th
 ├── settings/          # curated settings.json → ~/.pi/agent/settings.json   (merged via script)
 ├── APPEND_SYSTEM.md   # appended to system prompt → ~/.pi/agent/APPEND_SYSTEM.md (symlinked)
 ├── scripts/           # apply-settings.sh, link.sh, doctor.sh
+├── .pi/skills/        # project-local skills for working on this repo (not symlinked)
 ├── package.json       # devDeps only: @earendil-works/pi-* + typebox, for extension types
 ├── package-lock.json
 ├── tsconfig.json      # editor-only; pi loads .ts directly, no build step
@@ -57,6 +58,8 @@ For extensions / skills / themes / prompts, see the per-directory README for the
 4. Commit.
 
 `scripts/link.sh` does step 2 for every entry at once (idempotent — safe after a fresh clone), and `scripts/doctor.sh` verifies the wiring.
+
+After pulling or cloning, the project-local `refresh-install` skill (`/skill:refresh-install` from inside this repo) runs the full sync: prunes stale symlinks, relinks, applies settings, removes pi packages the repo no longer lists, and installs devDeps.
 
 For settings: add the key to `settings/settings.json`, run `scripts/apply-settings.sh`, commit. See [`settings/README.md`](settings/README.md).
 

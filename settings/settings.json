@@ -6,7 +6,6 @@
   "editorPaddingX": 1,
   "treeFilterMode": "no-tools",
   "packages": [
-    "npm:pi-web-access",
-    "npm:pi-mcp-adapter"
+    "npm:pi-web-access"
   ]
 }

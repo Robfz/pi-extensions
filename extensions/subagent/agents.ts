@@ -8,10 +8,10 @@ import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 
 export type AgentScope = "user" | "project" | "both";
 
-/** Which CLI executes the agent: pi (default), Cursor's cursor-agent, or Claude Code's claude. */
-export type AgentRunner = "pi" | "cursor" | "claude";
+/** Which CLI executes the agent: pi (default) or Cursor's cursor-agent. */
+export type AgentRunner = "pi" | "cursor";
 
-const VALID_RUNNERS: readonly string[] = ["pi", "cursor", "claude"];
+const VALID_RUNNERS: readonly string[] = ["pi", "cursor"];
 
 /** Execution mode for the cursor runner: plan (read-only) or ask (Q&A, read-only). */
 export type AgentMode = "plan" | "ask";
@@ -23,6 +23,8 @@ export interface AgentConfig {
 	description: string;
 	runner: AgentRunner;
 	tools?: string[];
+	/** Only used by the pi runner (maps to `pi --exclude-tools`). */
+	excludedTools?: string[];
 	model?: string;
 	/** Only used by the cursor runner (maps to `cursor-agent --mode`). */
 	mode?: AgentMode;
@@ -35,6 +37,31 @@ export interface AgentDiscoveryResult {
 	agents: AgentConfig[];
 	projectAgentsDir: string | null;
 }
+
+/**
+ * Parses a frontmatter tool list given as a comma-separated string or a YAML string array.
+ * Returns undefined when absent or empty, and null when the value has any other type.
+ */
+function parseToolList(value: unknown): string[] | undefined | null {
+	if (value === undefined || value === null) return undefined;
+	let items: unknown[];
+	if (typeof value === "string") items = value.split(",");
+	else if (Array.isArray(value)) items = value;
+	else return null;
+	if (!items.every((t) => typeof t === "string")) return null;
+	const list = (items as string[]).map((t) => t.trim()).filter(Boolean);
+	return list.length > 0 ? list : undefined;
+}
+
+type AgentFrontmatter = {
+	name?: string;
+	description?: string;
+	runner?: string;
+	mode?: string;
+	model?: string;
+	tools?: unknown;
+	excludedTools?: unknown;
+};
 
 function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig[] {
 	const agents: AgentConfig[] = [];
@@ -62,16 +89,26 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			continue;
 		}
 
-		const { frontmatter, body } = parseFrontmatter<Record<string, string>>(content);
+		// Malformed YAML skips this file without breaking discovery of other agents.
+		let frontmatter: AgentFrontmatter;
+		let body: string;
+		try {
+			({ frontmatter, body } = parseFrontmatter<AgentFrontmatter>(content));
+		} catch {
+			continue;
+		}
 
 		if (!frontmatter.name || !frontmatter.description) {
 			continue;
 		}
 
-		const tools = frontmatter.tools
-			?.split(",")
-			.map((t: string) => t.trim())
-			.filter(Boolean);
+		const tools = parseToolList(frontmatter.tools);
+		const excludedTools = parseToolList(frontmatter.excludedTools);
+
+		// Skip tool lists that are neither a string nor a string array so they surface as "Unknown agent".
+		if (tools === null || excludedTools === null) {
+			continue;
+		}
 
 		// Skip invalid runner values so typos surface as "Unknown agent" instead of silently using pi.
 		if (frontmatter.runner && !VALID_RUNNERS.includes(frontmatter.runner)) {
@@ -85,11 +122,17 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			continue;
 		}
 
+		// `excludedTools` has no cursor-agent equivalent, so reject it there for the same reason.
+		if (excludedTools && frontmatter.runner === "cursor") {
+			continue;
+		}
+
 		agents.push({
 			name: frontmatter.name,
 			description: frontmatter.description,
 			runner: (frontmatter.runner as AgentRunner) || "pi",
-			tools: tools && tools.length > 0 ? tools : undefined,
+			tools,
+			excludedTools,
 			model: frontmatter.model,
 			mode: frontmatter.mode as AgentMode | undefined,
 			systemPrompt: body,

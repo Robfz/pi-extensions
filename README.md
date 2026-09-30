@@ -131,17 +131,16 @@ Two flavors of exit (all triggers are case-insensitive and must be the entire me
 
 ### `subagent`
 
-Directory-form extension under [`extensions/subagent/`](extensions/subagent/), vendored from the upstream example (`examples/extensions/subagent/` in `@earendil-works/pi-coding-agent`) with two local additions: external runners (Cursor CLI, Claude Code) and a tool description that lists the available agents.
+Directory-form extension under [`extensions/subagent/`](extensions/subagent/), vendored from the upstream example (`examples/extensions/subagent/` in `@earendil-works/pi-coding-agent`) with three local additions: a Cursor CLI runner, an `excludedTools` tool denylist, and a tool description that lists the available agents.
 
 Registers one tool, `subagent`, with three modes: single (`{agent, task}`), parallel (`{tasks: […]}`, up to 8 / 4 concurrent / 50 KB output per task), and chain (`{chain: […]}` with `{previous}` placeholder). Each agent runs in a fresh subprocess chosen by its `runner:` frontmatter. Every runner's events are normalized into the same message shape, so streaming, chaining, and TUI rendering (collapsed by default, Ctrl+O to expand) are shared:
 
 | Runner | Subprocess | Notes |
 |---|---|---|
-| `pi` (default) | `pi --mode json -p --no-session` | System prompt via `--append-system-prompt`; `tools:` / `model:` frontmatter map to pi's tool allowlist and model. |
-| `cursor` | `cursor-agent -p --output-format stream-json --force --trust` | `model:` takes Cursor slugs; `tools:` is ignored; `mode: plan` or `ask` gives CLI-enforced read-only runs. Needs `cursor-agent` on PATH and auth. |
-| `claude` | `claude -p --output-format stream-json --verbose` | Claude Code headless. `tools:` maps to `--allowedTools`; runs against the user's Claude Code config, so its MCP servers and auth apply — this is how `figma-explorer` reaches the Figma remote MCP, which rejects pi as a client. Needs `claude` on PATH and auth. |
+| `pi` (default) | `pi --mode json -p --no-session` | System prompt via `--append-system-prompt`; `tools:` / `excludedTools:` / `model:` frontmatter map to pi's tool allowlist (`--tools`), denylist (`--exclude-tools`), and model. |
+| `cursor` | `cursor-agent -p --output-format stream-json --force --trust` | `model:` takes Cursor slugs; `tools:` is ignored and `excludedTools:` is rejected (agent skipped); `mode: plan` or `ask` gives CLI-enforced read-only runs. Needs `cursor-agent` on PATH and auth. |
 
-Agent definitions live in [`agents/`](agents/) (user scope, always loaded): `scout`, `planner`, `worker`, `reviewer` on pi; `cursor-worker`, `cross-reviewer` on cursor; `figma-explorer` on claude — see the table in [`agents/README.md`](agents/README.md). Project-scope agents in `.pi/agents/` are opt-in via `agentScope: "project"` or `"both"`; interactive sessions ask for confirmation the first time one is invoked (disable with `confirmProjectAgents: false`). User-scope agents discovered at startup are listed in the tool description so the model knows what's available; new agent files need a session restart to be advertised.
+Agent definitions live in [`agents/`](agents/) (user scope, always loaded): `scout`, `web-scout`, `figma-scout`, `planner`, `worker`, `reviewer` on pi; `cursor-worker`, `cross-reviewer` on cursor — see the table in [`agents/README.md`](agents/README.md). Project-scope agents in `.pi/agents/` are opt-in via `agentScope: "project"` or `"both"`; interactive sessions ask for confirmation the first time one is invoked (disable with `confirmProjectAgents: false`). User-scope agents discovered at startup are listed in the tool description so the model knows what's available; new agent files need a session restart to be advertised.
 
 Workflow prompt templates that drive chain mode live in [`prompts/`](prompts/) and surface as `/implement`, `/scout-and-plan`, `/implement-and-review`.
 
@@ -171,9 +170,11 @@ Tracked in [`settings/settings.json`](settings/settings.json), per-key rationale
 | `theme` | `dark` |
 | `editorPaddingX` | `1` |
 | `treeFilterMode` | `no-tools` — hide tool calls in `/tree` |
-| `packages` | `npm:pi-web-access`, `npm:pi-mcp-adapter` — pi installs missing ones on startup |
+| `packages` | `npm:pi-web-access` — pi installs missing ones on startup |
 
 Apply with `scripts/apply-settings.sh` (idempotent, preserves pi's own writes like `lastChangelogVersion`). Note that the merge replaces `packages` wholesale, so this list is authoritative — a package added ad hoc via `pi install` is dropped on the next apply unless added here.
+
+MCP servers come from pi's built-in MCP support, configured in `~/.pi/agent/mcp.json`. That file is machine-specific (server URLs, OAuth client names) and intentionally not tracked here.
 
 ## Reference
 

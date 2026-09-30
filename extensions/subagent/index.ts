@@ -14,6 +14,8 @@
  *   - Chain: { chain: [{ agent: "name", task: "... {previous} ..." }, ...] }
  *
  * Uses JSON mode to capture structured output from subagents.
+ *
+ * Publishes cumulative subagent spend on `pi.events` (`subagent:spend`) for the status-bar extension.
  */
 
 import { spawn } from "node:child_process";
@@ -174,6 +176,15 @@ interface SubagentDetails {
 	results: SingleResult[];
 }
 
+/** Published on `pi.events` channel "subagent:spend" (see SUBAGENT_SPEND_CHANNEL). */
+export interface SubagentSpend {
+	/** Cumulative subagent cost in USD: finished calls in the session file (all branches) + in-flight calls. */
+	cost: number;
+	/** True once any subagent call exists in the session, finished or in-flight. */
+	hasRun: boolean;
+}
+const SUBAGENT_SPEND_CHANNEL = "subagent:spend";
+
 function getFinalOutput(messages: Message[]): string {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const msg = messages[i];
@@ -188,6 +199,15 @@ function getFinalOutput(messages: Message[]): string {
 
 function isFailedResult(result: SingleResult): boolean {
 	return result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
+}
+
+/** Sum of `results[].usage.cost` from a SubagentDetails-shaped value; 0 for anything else (e.g. `{}` from a thrown call). */
+function subagentCost(details: unknown): number {
+	const results = (details as Partial<SubagentDetails> | undefined)?.results;
+	if (!Array.isArray(results)) return 0;
+	let cost = 0;
+	for (const r of results) cost += r?.usage?.cost ?? 0;
+	return cost;
 }
 
 function getResultOutput(result: SingleResult): string {
@@ -696,6 +716,50 @@ export default function (pi: ExtensionAPI) {
 	// Advertise user-scope agents in the tool description so the model knows what exists
 	// without a failed probe call. Discovered once at registration; execute() re-discovers.
 	const startupAgents = discoverAgents(process.cwd(), "user").agents;
+
+	// Subagent spend: finished calls (persisted as toolResult entries) + latest cumulative cost per in-flight call.
+	let committedCost = 0;
+	let hasCommitted = false;
+	const inFlight = new Map<string, number>();
+	const emitSpend = () => {
+		let cost = committedCost;
+		for (const c of inFlight.values()) cost += c;
+		const payload: SubagentSpend = { cost, hasRun: hasCommitted || inFlight.size > 0 };
+		pi.events.emit(SUBAGENT_SPEND_CHANNEL, payload);
+	};
+
+	pi.on("session_start", (_event, ctx) => {
+		committedCost = 0;
+		hasCommitted = false;
+		inFlight.clear();
+		for (const e of ctx.sessionManager.getEntries()) {
+			if (e.type !== "message" || e.message.role !== "toolResult" || e.message.toolName !== "subagent") continue;
+			hasCommitted = true;
+			committedCost += subagentCost(e.message.details);
+		}
+		emitSpend();
+	});
+
+	pi.on("tool_execution_start", (event) => {
+		if (event.toolName !== "subagent") return;
+		inFlight.set(event.toolCallId, 0);
+		emitSpend();
+	});
+
+	pi.on("tool_execution_update", (event) => {
+		if (event.toolName !== "subagent") return;
+		inFlight.set(event.toolCallId, subagentCost(event.partialResult?.details));
+		emitSpend();
+	});
+
+	pi.on("tool_execution_end", (event) => {
+		if (event.toolName !== "subagent") return;
+		inFlight.delete(event.toolCallId);
+		committedCost += subagentCost(event.result?.details);
+		hasCommitted = true;
+		emitSpend();
+	});
+
 	pi.registerTool({
 		name: "subagent",
 		label: "Subagent",

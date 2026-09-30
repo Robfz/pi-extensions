@@ -101,7 +101,7 @@ Replaces pi's default footer (via `ctx.ui.setFooter`) with a three-line layout (
 ```
  <folder> <branch> <dirty-dot> <context-bar>                       <session-name>
 
- <model> • <effort>                                   $cost [(sub)] pct%/win
+ <model> • <effort>                      $cost [(sub)] [(sa $cost)] pct%/win
 ```
 
 **Colors:**
@@ -114,9 +114,9 @@ Replaces pi's default footer (via `ctx.ui.setFooter`) with a three-line layout (
 - **effort** → pi's matching `thinking{Level}` theme key, so `high` glows the way pi glows it elsewhere
 - **right-side stats** → reuses the context-percentage color so a high-context session goes warning/error across the whole stats segment
 
-**Stats** are reduced to just `$cost [(sub)] pct%/win`. Tokens, cache R/W, and the `(auto)` indicator are intentionally dropped (the last because the extension API does not expose auto-compact state).
+**Stats** are reduced to just `$cost [(sub)] [(sa $cost)] pct%/win`, both figures rounded up to cents. `$cost` matches pi's footer (all branches of the session file). `(sa …)` is the spend published by the `subagent` extension, shown once any subagent call exists in the session (cursor-runner calls report no cost, so they contribute $0.00). Tokens, cache R/W, and the `(auto)` indicator are intentionally dropped (the last because the extension API does not expose auto-compact state).
 
-Refreshes the git dirty cache on `session_start` and `turn_end`; reacts to branch changes via `footerData.onBranchChange`.
+Refreshes the git dirty cache on `session_start` and `turn_end`; reacts to branch changes via `footerData.onBranchChange` and to subagent spend via the `subagent:spend` channel on `pi.events`.
 
 ### `exit-command`
 

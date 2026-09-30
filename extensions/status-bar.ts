@@ -5,7 +5,7 @@
  *
  *   Line 1:  <folder> <branch> <dirty-dot> <context-bar>                          <session-name>
  *   Line 2:  (blank spacer)
- *   Line 3:  <model> • <effort>                                      <$cost [(sub)] pct%/win>
+ *   Line 3:  <model> • <effort>                         <$cost [(sub)] [(sa $cost)] pct%/win>
  *
  * Every line is padded with 1 column on the left and right.
  *
@@ -21,24 +21,31 @@
  *               colored `accent`
  * - effort      thinking level when model.reasoning is true; colored using pi's matching
  *               `thinking{Level}` theme keys (so "high" glows the way pi glows it elsewhere)
- * - rest        only `$cost [(sub)] pct%/win`; the rest of pi's default stats (tokens, cache R/W)
- *               are intentionally dropped. The `(auto)` flag is also dropped because the extension
- *               API does not expose auto-compact state.
+ * - rest        only `$cost [(sub)] [(sa $cost)] pct%/win`; the rest of pi's default stats (tokens,
+ *               cache R/W) are intentionally dropped. The `(auto)` flag is also dropped because the
+ *               extension API does not expose auto-compact state.
+ * - $cost       mirrors pi's footer: assistant usage + usage entries + tool-result usage +
+ *               branch-summary/compaction usage, across all branches of the session file.
+ *               Rounded up to cents.
+ * - (sa $cost)  subagent spend from the subagent extension's `subagent:spend` event, rounded up
+ *               to cents; shown while any subagent call exists in the session.
  *
  * Hooks: session_start installs the footer once (idempotent) and refreshes the git dirty
  *        cache; turn_end refreshes the dirty cache and requests a re-render. Branch changes
  *        are picked up reactively via footerData.onBranchChange. The render closure reads
  *        a module-level `currentCtx` updated by both hooks, so per-session state stays fresh
  *        without re-installing (which would trigger the previous footer's dispose to clobber
- *        the new tuiRef).
+ *        the new tuiRef). A `pi.events` subscription to `subagent:spend` stores the latest
+ *        subagent spend and requests a re-render.
  */
 
-import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { execFile } from "node:child_process";
 import { basename } from "node:path";
 import { promisify } from "node:util";
+// Type-only: a value import would load a second copy of the subagent extension module.
+import type { SubagentSpend } from "./subagent/index.ts";
 
 const exec = promisify(execFile);
 
@@ -90,6 +97,11 @@ function formatTokens(n: number): string {
 	return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
+/** Round up to whole cents. The epsilon keeps float artifacts (0.07 * 100 = 7.000000000000001) from rounding to $0.08. */
+function formatCentsUp(usd: number): string {
+	return (Math.ceil(usd * 100 - 1e-9) / 100).toFixed(2);
+}
+
 function contextBar(percent: number | null, theme: Theme): string {
 	const cells = 5;
 	if (percent == null) {
@@ -137,8 +149,11 @@ function thinkingColor(level: string): ThemeColor {
 
 // ---------- footer installation ------------------------------------------------------------
 
-/** Holds the active TUI so out-of-band events (session_start, turn_end) can request renders. */
+/** Holds the active TUI so out-of-band events (session_start, turn_end, subagent:spend) can request renders. */
 let tuiRef: { requestRender(): void } | null = null;
+
+/** Last payload from the subagent extension's "subagent:spend" channel; null until it emits. */
+let subagentSpend: SubagentSpend | null = null;
 
 /**
  * Latest ctx seen by a session lifecycle hook, refreshed on session_start and turn_end.
@@ -264,19 +279,24 @@ function installFooter(initialCtx: ExtensionContext): void {
 					leftWidth = leftRawWidth;
 				}
 
-				// -------- line 3 right: $cost [(sub)] pct%/win
+				// -------- line 3 right: $cost [(sub)] [(sa $cost)] pct%/win
+				// Same entries pi's native footer sums, across all branches of the session file.
 				let totalCost = 0;
 				for (const e of ctx.sessionManager.getEntries()) {
-					if (e.type === "message" && e.message.role === "assistant") {
-						const m = e.message as AssistantMessage;
-						totalCost += m.usage.cost.total;
-					}
+					if (e.type === "usage") totalCost += e.usage.cost.total;
+					else if (e.type === "message" && e.message.role === "assistant") totalCost += e.message.usage.cost.total;
+					else if (e.type === "message" && e.message.role === "toolResult") totalCost += e.message.usage?.cost.total ?? 0;
+					else if (e.type === "branch_summary" || e.type === "compaction") totalCost += e.usage?.cost.total ?? 0;
 				}
 				const usingSubscription = model ? ctx.modelRegistry.isUsingOAuth(model) : false;
 
 				const statParts: string[] = [];
-				if (totalCost || usingSubscription) {
-					statParts.push(`$${totalCost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`);
+				const spend = subagentSpend?.hasRun ? subagentSpend : null;
+				if (totalCost || usingSubscription || spend) {
+					let costStr = `$${formatCentsUp(totalCost)}`;
+					if (usingSubscription) costStr += " (sub)";
+					if (spend) costStr += ` (sa $${formatCentsUp(spend.cost)})`;
+					statParts.push(costStr);
 				}
 				const window = ctxUsage?.contextWindow ?? model?.contextWindow ?? 0;
 				const pctStr =
@@ -318,6 +338,12 @@ function installFooter(initialCtx: ExtensionContext): void {
 // ---------- entry --------------------------------------------------------------------------
 
 export default function (pi: ExtensionAPI) {
+	// Channel name matches SUBAGENT_SPEND_CHANNEL in ./subagent/index.ts.
+	pi.events.on("subagent:spend", (data) => {
+		subagentSpend = data as SubagentSpend;
+		tuiRef?.requestRender();
+	});
+
 	pi.on("session_start", async (_event, ctx) => {
 		currentCtx = ctx;
 		installFooter(ctx); // idempotent; first call installs, subsequent calls no-op

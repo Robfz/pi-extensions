@@ -19,6 +19,8 @@ Each invocation spawns a fresh subprocess per the agent's `runner`:
 
 All runners stream progress into the TUI (collapsed by default, Ctrl+O to expand). `AbortSignal` propagates as SIGTERM → SIGKILL.
 
+The extension publishes cumulative subagent spend (finished calls across all branches of the session file plus in-flight calls) as `{ cost, hasRun }` on `pi.events` channel `subagent:spend`, re-emitted on every `session_start` and on each subagent tool start/update/end. The [`status-bar`](../status-bar.ts) extension renders it. Cursor runs and aborted calls contribute $0.
+
 ## Agent definitions
 
 See [`../../agents/`](../../agents/). Agents are markdown files with YAML frontmatter (`name`, `description`, `tools?`, `excludedTools?` — pi only: denylist passed as `--exclude-tools`, `model?`, `runner?`, `mode?` — cursor only: `plan`/`ask` for CLI-enforced read-only).
@@ -39,6 +41,7 @@ The bundled prompts under [`../../prompts/`](../../prompts/) (`implement.md`, `s
 
 - **Cursor runner** (`agents.ts`, `index.ts`): agents can declare `runner: cursor` in frontmatter to execute on Cursor's `cursor-agent` CLI (headless mode, Composer 2.5 et al.) instead of a `pi` subprocess. See [`../../agents/README.md`](../../agents/README.md) for frontmatter semantics.
 - **Tool denylist** (`agents.ts`, `index.ts`): pi-runner agents can declare `excludedTools:` (comma-separated string or YAML list) to pass `--exclude-tools`, keeping every other tool including extension/MCP tools.
+- **Spend event** (`index.ts`): publishes cumulative subagent cost as `{ cost, hasRun }` on `pi.events` channel `subagent:spend` (payload type `SubagentSpend`).
 - **Dynamic tool description** (`index.ts`): user-scope agents discovered at registration are listed (name + description) in the `subagent` tool description, so the model knows what's available without a failed probe call. New agent files need a session restart to be advertised (invocation itself always uses fresh discovery).
 
 ## Reference

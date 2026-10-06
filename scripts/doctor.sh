@@ -5,7 +5,7 @@
 # Verify the symlink wiring between this repo and ~/.pi/agent/:
 #
 #   1. Every repo entry (extensions/agents/skills/themes/prompts, plus
-#      APPEND_SYSTEM.md) has a symlink under ~/.pi/agent/ pointing at it.
+#      APPEND_SYSTEM.md and mcp.json) has a symlink under ~/.pi/agent/ pointing at it.
 #   2. Every entry inside ~/.pi/agent/<kind>/ is a symlink into this repo —
 #      flags real files, broken symlinks, and symlinks pointing elsewhere,
 #      except integrations explicitly managed by another application.
@@ -18,6 +18,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
 KINDS="extensions agents skills themes prompts"
+TOP_FILES="APPEND_SYSTEM.md mcp.json"
 
 problems=0
 
@@ -47,7 +48,9 @@ for kind in $KINDS; do
     check_link "$src" "$AGENT_DIR/$kind/$name"
   done
 done
-[ -f "$REPO_DIR/APPEND_SYSTEM.md" ] && check_link "$REPO_DIR/APPEND_SYSTEM.md" "$AGENT_DIR/APPEND_SYSTEM.md"
+for name in $TOP_FILES; do
+  [ -f "$REPO_DIR/$name" ] && check_link "$REPO_DIR/$name" "$AGENT_DIR/$name"
+done
 
 # 2. Live -> repo: nothing under ~/.pi/agent/<kind>/ should be real or stray.
 for kind in $KINDS; do

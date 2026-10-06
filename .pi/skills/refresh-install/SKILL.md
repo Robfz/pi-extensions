@@ -5,7 +5,7 @@ description: Bring this machine's pi installation (~/.pi/agent) back in sync wit
 
 # Refresh the local pi installation
 
-Syncs `~/.pi/agent/` with this repo. Run every command from the repo root. Inspect first, report what is out of date, then fix. The user invoking this skill authorizes the fixes below; anything outside them (real-file conflicts, foreign symlinks, MCP config) is reported, not changed.
+Syncs `~/.pi/agent/` with this repo. Run every command from the repo root. Inspect first, report what is out of date, then fix. The user invoking this skill authorizes the fixes below; anything outside them (real-file conflicts, foreign symlinks, MCP sign-ins) is reported, not changed.
 
 ## 1. Inspect
 
@@ -69,6 +69,6 @@ pi list
 pi mcp list
 ```
 
-MCP servers come from the untracked, machine-specific `~/.pi/agent/mcp.json`. Report what `pi mcp list` shows, but never create or edit that file.
+MCP servers come from the repo's `mcp.json`, linked like any other entry. Report what `pi mcp list` shows. Servers that need sign-in are the user's to authenticate via `/mcp`; never touch `~/.pi/agent/mcp-auth.json`.
 
 Finish with a short summary of what changed. If any extensions, agents, skills, or settings changed, tell the user to restart pi.

@@ -6,7 +6,7 @@
 # entry in this repo:
 #
 #   <repo>/<kind>/<entry>  ->  ~/.pi/agent/<kind>/<entry>
-#   <repo>/APPEND_SYSTEM.md -> ~/.pi/agent/APPEND_SYSTEM.md
+#   <repo>/<file>           -> ~/.pi/agent/<file>   (APPEND_SYSTEM.md, mcp.json)
 #
 # Kinds: extensions, agents, skills, themes, prompts.
 # README.md files and dotfiles at the top of each kind dir are skipped.
@@ -20,6 +20,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
 KINDS="extensions agents skills themes prompts"
+TOP_FILES="APPEND_SYSTEM.md mcp.json"
 
 linked=0 kept=0 skipped=0
 
@@ -55,10 +56,10 @@ for kind in $KINDS; do
   done
 done
 
-if [ -f "$REPO_DIR/APPEND_SYSTEM.md" ]; then
-  mkdir -p "$AGENT_DIR"
-  link_entry "$REPO_DIR/APPEND_SYSTEM.md" "$AGENT_DIR/APPEND_SYSTEM.md"
-fi
+mkdir -p "$AGENT_DIR"
+for name in $TOP_FILES; do
+  [ -f "$REPO_DIR/$name" ] && link_entry "$REPO_DIR/$name" "$AGENT_DIR/$name"
+done
 
 echo "done: $linked linked, $kept already correct, $skipped skipped"
 [ "$skipped" -eq 0 ]

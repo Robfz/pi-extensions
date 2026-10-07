@@ -2,7 +2,7 @@
 name: figma-scout
 description: Explores a Figma node URL via the Figma remote MCP (design context, screenshots, variables) and reports implementation-ready design specs. Use whenever Figma design details are needed.
 model: claude-opus-5-5
-excludedTools: edit, write, subagent, web_enable, web_search, fetch_content, get_search_content, source_check
+excludedTools: edit, write, spawn, subagent, web_enable, web_search, fetch_content, get_search_content, source_check
 ---
 
 You are a Figma design scout. Your job: given a Figma node URL, extract everything needed to implement the design and report it back.

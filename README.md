@@ -118,7 +118,7 @@ Replaces pi's default footer (via `ctx.ui.setFooter`) with a three-line layout (
 - **effort** → pi's matching `thinking{Level}` theme key, so `high` glows the way pi glows it elsewhere
 - **right-side stats** → reuses the context-percentage color so a high-context session goes warning/error across the whole stats segment
 
-**Stats** are reduced to just `$cost [(sub)] [(sa $cost)] pct%/win`, both figures rounded up to cents. `$cost` matches pi's footer (all branches of the session file). `(sa …)` is the spend published by the `subagent` extension, shown once any subagent call exists in the session (cursor-runner calls report no cost, so they contribute $0.00). Tokens, cache R/W, and the `(auto)` indicator are intentionally dropped (the last because the extension API does not expose auto-compact state).
+**Stats** are reduced to just `$cost [(sub)] [(sa $cost)] pct%/win`, both figures rounded up to cents. `$cost` matches pi's footer (all branches of the session file). `(sa …)` is the spend published by the `subagent` extension's `spawn` tool, shown once any subagent call exists in the session (cursor-runner calls report no cost, so they contribute $0.00). Tokens, cache R/W, and the `(auto)` indicator are intentionally dropped (the last because the extension API does not expose auto-compact state).
 
 Refreshes the git dirty cache on `session_start` and `turn_end`; reacts to branch changes via `footerData.onBranchChange` and to subagent spend via the `subagent:spend` channel on `pi.events`.
 
@@ -137,7 +137,7 @@ Two flavors of exit (all triggers are case-insensitive and must be the entire me
 
 Directory-form extension under [`extensions/subagent/`](extensions/subagent/), vendored from the upstream example (`examples/extensions/subagent/` in `@earendil-works/pi-coding-agent`) with three local additions: a Cursor CLI runner, an `excludedTools` tool denylist, and a tool description that lists the available agents.
 
-Registers one tool, `subagent`, with three modes: single (`{agent, task}`), parallel (`{tasks: […]}`, up to 8 / 4 concurrent / 50 KB output per task), and chain (`{chain: […]}` with `{previous}` placeholder). Each agent runs in a fresh subprocess chosen by its `runner:` frontmatter. Every runner's events are normalized into the same message shape, so streaming, chaining, and TUI rendering (collapsed by default, Ctrl+O to expand) are shared:
+Registers one tool, `spawn` (not `subagent`, which the `pi-subagents` package claims), with three modes: single (`{agent, task}`), parallel (`{tasks: […]}`, up to 8 / 4 concurrent / 50 KB output per task), and chain (`{chain: […]}` with `{previous}` placeholder). Each agent runs in a fresh subprocess chosen by its `runner:` frontmatter. Every runner's events are normalized into the same message shape, so streaming, chaining, and TUI rendering (collapsed by default, Ctrl+O to expand) are shared:
 
 | Runner | Subprocess | Notes |
 |---|---|---|

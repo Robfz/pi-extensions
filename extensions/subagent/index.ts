@@ -1,5 +1,5 @@
 /**
- * Subagent Tool - Delegate tasks to specialized agents
+ * Subagent Tool (`spawn`) - Delegate tasks to specialized agents
  *
  * Spawns a separate child process for each subagent invocation,
  * giving it an isolated context window. Agents run on one of two
@@ -184,6 +184,9 @@ export interface SubagentSpend {
 	hasRun: boolean;
 }
 const SUBAGENT_SPEND_CHANNEL = "subagent:spend";
+
+/** Not "subagent": the pi-subagents package registers that name, and pi refuses to load duplicate tool names. */
+const TOOL_NAME = "spawn";
 
 function getFinalOutput(messages: Message[]): string {
 	for (let i = messages.length - 1; i >= 0; i--) {
@@ -733,7 +736,7 @@ export default function (pi: ExtensionAPI) {
 		hasCommitted = false;
 		inFlight.clear();
 		for (const e of ctx.sessionManager.getEntries()) {
-			if (e.type !== "message" || e.message.role !== "toolResult" || e.message.toolName !== "subagent") continue;
+			if (e.type !== "message" || e.message.role !== "toolResult" || e.message.toolName !== TOOL_NAME) continue;
 			hasCommitted = true;
 			committedCost += subagentCost(e.message.details);
 		}
@@ -741,19 +744,19 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("tool_execution_start", (event) => {
-		if (event.toolName !== "subagent") return;
+		if (event.toolName !== TOOL_NAME) return;
 		inFlight.set(event.toolCallId, 0);
 		emitSpend();
 	});
 
 	pi.on("tool_execution_update", (event) => {
-		if (event.toolName !== "subagent") return;
+		if (event.toolName !== TOOL_NAME) return;
 		inFlight.set(event.toolCallId, subagentCost(event.partialResult?.details));
 		emitSpend();
 	});
 
 	pi.on("tool_execution_end", (event) => {
-		if (event.toolName !== "subagent") return;
+		if (event.toolName !== TOOL_NAME) return;
 		inFlight.delete(event.toolCallId);
 		committedCost += subagentCost(event.result?.details);
 		hasCommitted = true;
@@ -761,7 +764,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
-		name: "subagent",
+		name: TOOL_NAME,
 		label: "Subagent",
 		description: [
 			"Delegate tasks to specialized subagents with isolated context.",

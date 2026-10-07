@@ -4,7 +4,7 @@ Vendored, near-verbatim copy of the upstream subagent example from `@earendil-wo
 
 ## What it does
 
-Registers one tool, `subagent`, that delegates work to focused child agents. Three modes via params:
+Registers one tool, `spawn`, that delegates work to focused child agents. Three modes via params:
 
 | Mode | Params | Behavior |
 |---|---|---|
@@ -30,7 +30,7 @@ See [`../../agents/`](../../agents/). Agents are markdown files with YAML frontm
 
 ## Workflow prompt templates
 
-The bundled prompts under [`../../prompts/`](../../prompts/) (`implement.md`, `scout-and-plan.md`, `implement-and-review.md`) are plain prompt templates that tell the parent agent to use the `subagent` tool with a specific `chain`. They're surfaced as slash commands (`/implement`, `/scout-and-plan`, `/implement-and-review`) by pi's normal prompt template loading.
+The bundled prompts under [`../../prompts/`](../../prompts/) (`implement.md`, `scout-and-plan.md`, `implement-and-review.md`) are plain prompt templates that tell the parent agent to use the `spawn` tool with a specific `chain`. They're surfaced as slash commands (`/implement`, `/scout-and-plan`, `/implement-and-review`) by pi's normal prompt template loading.
 
 ## Files
 
@@ -42,7 +42,8 @@ The bundled prompts under [`../../prompts/`](../../prompts/) (`implement.md`, `s
 - **Cursor runner** (`agents.ts`, `index.ts`): agents can declare `runner: cursor` in frontmatter to execute on Cursor's `cursor-agent` CLI (headless mode, Composer 2.5 et al.) instead of a `pi` subprocess. See [`../../agents/README.md`](../../agents/README.md) for frontmatter semantics.
 - **Tool denylist** (`agents.ts`, `index.ts`): pi-runner agents can declare `excludedTools:` (comma-separated string or YAML list) to pass `--exclude-tools`, keeping every other tool including extension/MCP tools.
 - **Spend event** (`index.ts`): publishes cumulative subagent cost as `{ cost, hasRun }` on `pi.events` channel `subagent:spend` (payload type `SubagentSpend`).
-- **Dynamic tool description** (`index.ts`): user-scope agents discovered at registration are listed (name + description) in the `subagent` tool description, so the model knows what's available without a failed probe call. New agent files need a session restart to be advertised (invocation itself always uses fresh discovery).
+- **Tool name** (`index.ts`): the tool is `spawn` instead of upstream's `subagent`, so it can load next to the [`pi-subagents`](https://github.com/nicobailon/pi-subagents) package, which registers `subagent` (pi refuses duplicate tool names). Agents that deny delegation list both names in `excludedTools`.
+- **Dynamic tool description** (`index.ts`): user-scope agents discovered at registration are listed (name + description) in the `spawn` tool description, so the model knows what's available without a failed probe call. New agent files need a session restart to be advertised (invocation itself always uses fresh discovery).
 
 ## Reference
 

@@ -1,8 +1,8 @@
 # agents/
 
-Subagent definitions consumed by the `subagent` extension (see [`../extensions/subagent/`](../extensions/subagent/)).
+Subagent definitions consumed by the `subagent` extension's `spawn` tool (see [`../extensions/subagent/`](../extensions/subagent/)).
 
-- **Pi scans:** `~/.pi/agent/agents/*.md` (user scope, always loaded). The `subagent` tool also reads `.pi/agents/*.md` from the project tree when `agentScope: "both"` or `"project"`.
+- **Pi scans:** `~/.pi/agent/agents/*.md` (user scope, always loaded). The `spawn` tool also reads `.pi/agents/*.md` from the project tree when `agentScope: "both"` or `"project"`.
 - **Format:** Markdown with YAML frontmatter. Required keys: `name`, `description`. Optional: `tools` (comma-separated allowlist → `pi --tools`), `excludedTools` (comma-separated denylist → `pi --exclude-tools`, pi runner only; the agent gets pi's default tools plus extension/MCP tools, minus the listed exact names; applied after `tools:` if both are set), `model`, `runner` (`pi` default, or `cursor` for Cursor CLI — see below), `mode` (cursor runner only: `plan` or `ask` for CLI-enforced read-only).
 
   ```markdown

@@ -69,6 +69,6 @@ pi list
 pi mcp list
 ```
 
-MCP servers come from the repo's `mcp.json`, linked like any other entry. Report what `pi mcp list` shows. Servers that need sign-in are the user's to authenticate via `/mcp`; never touch `~/.pi/agent/mcp-auth.json`.
+MCP servers are configured per machine in `~/.pi/agent/mcp.json`, which the repo doesn't manage; don't create or edit it. Report what `pi mcp list` shows. Servers that need sign-in are the user's to authenticate via `/mcp`; never touch `~/.pi/agent/mcp-auth.json`.
 
 Finish with a short summary of what changed. If any extensions, agents, skills, or settings changed, tell the user to restart pi.

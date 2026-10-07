@@ -19,7 +19,6 @@ pi loads each of these from a directory under `~/.pi/agent/`. This repo keeps th
 ├── prompts/           # .md prompt templates → ~/.pi/agent/prompts/         (symlinked)
 ├── settings/          # curated settings.json → ~/.pi/agent/settings.json   (merged via script)
 ├── APPEND_SYSTEM.md   # appended to system prompt → ~/.pi/agent/APPEND_SYSTEM.md (symlinked)
-├── mcp.json           # MCP servers          → ~/.pi/agent/mcp.json         (symlinked)
 ├── scripts/           # apply-settings.sh, link.sh, doctor.sh
 ├── .pi/skills/        # project-local skills for working on this repo (not symlinked)
 ├── package.json       # devDeps only: @earendil-works/pi-* + typebox, for extension types
@@ -178,7 +177,7 @@ Tracked in [`settings/settings.json`](settings/settings.json), per-key rationale
 
 Apply with `scripts/apply-settings.sh` (idempotent, preserves pi's own writes like `lastChangelogVersion`). Note that the merge replaces `packages` wholesale, so this list is authoritative — a package added ad hoc via `pi install` is dropped on the next apply unless added here.
 
-MCP servers come from pi's built-in MCP support, configured in [`mcp.json`](mcp.json) and symlinked to `~/.pi/agent/mcp.json` by `scripts/link.sh`: Linear, Figma, and Datadog, all with `deferred` exposure. Datadog has one entry per site (`datadog-us1`, `datadog-us5`) because pi doesn't expand variables in `url`; to keep a project on one site, use "Disable in this project" in `/mcp` on the other. OAuth tokens stay per machine in `~/.pi/agent/mcp-auth.json`; sign in to each server once via `/mcp`.
+MCP servers come from pi's built-in MCP support and are configured per machine in `~/.pi/agent/mcp.json`, which this repo doesn't track, since which servers are relevant or reachable differs between machines. Pi doesn't expand variables in `url`, so a service with several sites (e.g. Datadog) needs one entry per site; to keep a project on one site, use "Disable in this project" in `/mcp` on the others. OAuth tokens stay per machine in `~/.pi/agent/mcp-auth.json`; sign in to each server once via `/mcp`.
 
 ## Reference
 

@@ -1,6 +1,6 @@
 # subagent extension
 
-Derived from the upstream subagent example in `@earendil-works/pi-coding-agent` (`examples/extensions/subagent/`), split into five source files (~1.6 kloc) and extended locally (see Departures).
+Derived from the upstream subagent example in `@earendil-works/pi-coding-agent` (`examples/extensions/subagent/`), split into several source files and extended locally (see Departures).
 
 ## What it does
 
@@ -36,7 +36,11 @@ The bundled prompts under [`../../prompts/`](../../prompts/) (`implement.md`, `s
 
 `spawn({ script, args? })` runs a JS orchestration script: the body of an async function that receives `agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, `applyPatch` (plus `console.*` aliased to `log`) and must return plain data. The script runs in a bare `node:vm` context inside a worker thread, so a runaway loop never blocks pi and abort terminates it immediately.
 
-- `agent(prompt, { agent?, label? })` runs one pi agent (default `general`; cursor agents are rejected) and resolves to `{ ok, output, error?, reason?, followUps, usage, … }` — child failures are values, never throws. At most 16 agents run at once.
+- `agent(prompt, { agent?, label?, schema?, timeout?, isolation? })` runs one pi agent (default `general`; cursor agents are rejected) and resolves to `{ ok, output, data?, patch?, error?, reason?, followUps, attempts, usage, … }` — child failures are values (`reason`: `error`, `timeout`, `aborted`, `schema`, `unknown-agent`, `isolation`), never throws. At most 16 agents run at once.
+  - `schema` (JSON Schema object): the child is told to answer with a ```` ```json ```` block; the last such block (or the whole output) is parsed and validated with TypeBox `Value.Check`. An invalid answer is retried up to 3 times with the previous output and the validation errors in the prompt — each attempt is a new child process. Valid → `data`; still invalid → `reason: "schema"`.
+  - `timeout` (ms): one budget for all attempts of the call; expiry aborts the child → `reason: "timeout"`.
+  - `isolation: "worktree"`: the child runs in a temporary git worktree under `$TMPDIR/pi-workflow-<runId>/` holding HEAD plus the checkout's uncommitted and untracked (not ignored) changes. Its changes come back as `patch` (`git diff --binary`, incl. new and binary files) and the worktree is deleted as soon as the agent finishes; the run directory is swept when the run ends, also on abort or failure. Gitignored state (`node_modules`, `.env`, build output) is not copied.
+- `applyPatch(patch)` applies a patch to the user's checkout all-or-nothing (`git apply --check`, then `git apply`) and resolves to `{ ok: true }` or `{ ok: false, error }` with the checkout untouched. An empty patch is `{ ok: true }`. Calls are serialized.
 - Every child gets `--exclude-tools spawn,subagent` merged with its own `excludedTools`, so children never spawn agents. A child asks for more work by ending its reply with a ```` ```followups ```` JSON block of `{task, agent}`; it comes back in `followUps` for the script to queue.
 - Each child process is a `details.results[]` entry (messages dropped), so spend tracking covers workflows live and after the run.
 - The final result is returned uncapped.
@@ -47,7 +51,9 @@ The bundled prompts under [`../../prompts/`](../../prompts/) (`implement.md`, `s
 - `index.ts` — tool registration and params, spend tracking, workflow approval, single/parallel/chain/workflow dispatch.
 - `runner.ts` — child-process runner (`runSingleAgent`, `buildPiArgs`), pi/cursor event parsing, concurrency helper. No TUI imports.
 - `render.ts` — `renderCall` / `renderResult` (incl. workflow progress) and formatting helpers.
-- `workflow.ts` — workflow runtime host (`runWorkflow`): worker lifecycle, concurrency, `agent()` dispatch, progress, follow-up parsing.
+- `workflow.ts` — workflow runtime host (`runWorkflow`): worker lifecycle, concurrency, `agent()` dispatch (schema retries, timeouts, isolation), `applyPatch`, progress, follow-up parsing.
+- `schema.ts` — JSON extraction and TypeBox validation of agent output, schema/retry prompt text.
+- `worktree.ts` — git worktree create/patch/remove/sweep and `applyPatch` on the checkout (git via `execFile`, hooks disabled).
 - `workflow-worker-source.ts` — worker thread source (plain JS string) that runs the script in `node:vm`.
 - `approvals.ts` — per-project workflow auto-approval file.
 - `types.ts` — shared types (`SingleResult`, `SubagentDetails`, `SubagentSpend`), constants, pure result helpers.

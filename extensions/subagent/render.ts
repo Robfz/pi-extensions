@@ -586,7 +586,10 @@ export function renderWorkflowResult(
 		if (running.length > 0) {
 			const shown = running
 				.slice(0, 5)
-				.map((r) => `${rowName(r)} ${formatDuration(now - (r.startedAt ?? now))}`)
+				.map(
+					(r) =>
+						`${rowName(r)}${r.isolated ? " ⌂" : ""}${r.attempts > 1 ? ` ${r.attempts}×` : ""} ${formatDuration(now - (r.startedAt ?? now))}`,
+				)
 				.join(", ");
 			const more = running.length > 5 ? ` +${running.length - 5} more` : "";
 			text += `\n  ${theme.fg("muted", "running: ")}${theme.fg("dim", shown + more)}`;

@@ -13,6 +13,9 @@ import {
 	isFailedResult,
 	type SingleResult,
 	type SubagentDetails,
+	subagentCost,
+	type WorkflowAgentRow,
+	type WorkflowDetails,
 } from "./types.ts";
 
 /** Structural subset of the `spawn` tool params that renderCall reads. */
@@ -22,6 +25,9 @@ export interface SubagentCallArgs {
 	tasks?: { agent: string; task: string }[];
 	chain?: { agent: string; task: string }[];
 	agentScope?: AgentScope;
+	script?: string;
+	workflow?: string;
+	args?: Record<string, unknown>;
 }
 
 export function formatTokens(count: number): string {
@@ -148,6 +154,7 @@ export function getDisplayItems(messages: Message[]): DisplayItem[] {
 
 export function renderCall(args: SubagentCallArgs, theme: Theme): Component {
 	const scope: AgentScope = args.agentScope ?? "user";
+	if (args.script || args.workflow) return renderWorkflowCall(args, theme);
 	if (args.chain && args.chain.length > 0) {
 		let text =
 			theme.fg("toolTitle", theme.bold("subagent ")) +
@@ -196,6 +203,10 @@ export function renderResult(
 	theme: Theme,
 ): Component {
 	const details = result.details as SubagentDetails | undefined;
+	if (details?.mode === "workflow") {
+		const first = result.content[0];
+		return renderWorkflowResult(details, { expanded }, theme, first?.type === "text" ? first.text : "");
+	}
 	if (!details || details.results.length === 0) {
 		const text = result.content[0];
 		return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);
@@ -463,4 +474,167 @@ export function renderResult(
 
 	const text = result.content[0];
 	return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);
+}
+
+// ── workflow mode ──
+
+const preview = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…` : text);
+
+export function renderWorkflowCall(args: SubagentCallArgs, theme: Theme): Component {
+	const scope: AgentScope = args.agentScope ?? "user";
+	let text =
+		theme.fg("toolTitle", theme.bold("subagent workflow ")) +
+		theme.fg("accent", args.workflow || "inline") +
+		theme.fg("muted", ` [${scope}]`);
+	if (args.args && Object.keys(args.args).length > 0) {
+		text += `\n  ${theme.fg("muted", "args: ")}${theme.fg("dim", preview(JSON.stringify(args.args), 60))}`;
+	}
+	if (args.script) text += `\n  ${theme.fg("dim", `script: ${args.script.split("\n").length} lines`)}`;
+	return new Text(text, 0, 0);
+}
+
+function workflowIcon(details: WorkflowDetails, theme: Theme): string {
+	switch (details.status) {
+		case "running":
+			return theme.fg("warning", "…");
+		case "done":
+			return theme.fg("success", "✓");
+		case "failed":
+		case "aborted":
+			return theme.fg("error", "✗");
+		case "canceled":
+			return theme.fg("muted", "○");
+		default:
+			return theme.fg("muted", "?");
+	}
+}
+
+function rowIcon(row: WorkflowAgentRow, theme: Theme): string {
+	switch (row.status) {
+		case "queued":
+			return theme.fg("muted", "·");
+		case "running":
+			return theme.fg("warning", "…");
+		case "done":
+			return theme.fg("success", "✓");
+		default:
+			return theme.fg("error", "✗");
+	}
+}
+
+/** Model-facing text after the "Workflow … finished" header line, i.e. the formatted script result. */
+function workflowResultBody(text: string): string {
+	const i = text.indexOf("\n\n");
+	return i >= 0 ? text.slice(i + 2) : "";
+}
+
+export function renderWorkflowResult(
+	details: WorkflowDetails,
+	{ expanded }: { expanded: boolean },
+	theme: Theme,
+	contentText: string,
+): Component {
+	const now = Date.now();
+	const rows = details.agents;
+	const done = rows.filter((r) => r.status === "done").length;
+	const failed = rows.filter((r) => r.status === "failed").length;
+	const running = rows.filter((r) => r.status === "running");
+	const queued = rows.filter((r) => r.status === "queued").length;
+	const cost = subagentCost(details);
+	const duration = formatDuration((details.endedAt ?? now) - details.startedAt);
+
+	if (details.status === "canceled" || details.status === "pending-approval") {
+		return new Text(
+			`${workflowIcon(details, theme)} ${theme.fg("toolTitle", theme.bold(`workflow ${details.name}`))}  ${theme.fg("muted", details.status)}`,
+			0,
+			0,
+		);
+	}
+
+	const counts = [
+		`${done} done`,
+		`${failed} failed`,
+		`${running.length} running`,
+		...(queued > 0 ? [`${queued} queued`] : []),
+		`${details.spawned} spawned`,
+		`$${cost.toFixed(4)}`,
+		duration,
+	].join(" · ");
+	const statusColor = details.status === "done" ? "success" : details.status === "running" ? "warning" : "error";
+	let header =
+		`${workflowIcon(details, theme)} ${theme.fg("toolTitle", theme.bold(`workflow ${details.name}`))}  ` +
+		`${theme.fg(statusColor, details.status)}  ${theme.fg("muted", counts)}`;
+	if (details.error && details.status !== "done") header += `\n${theme.fg("error", details.error)}`;
+
+	const phaseLines = details.phases.map((p, i) => {
+		const inPhase = rows.filter((r) => r.phaseIndex === i);
+		const finished = inPhase.filter((r) => r.status === "done" || r.status === "failed").length;
+		const phaseFailed = inPhase.filter((r) => r.status === "failed").length;
+		const icon = p.status === "done" ? theme.fg("success", "✓") : theme.fg("warning", "…");
+		let line = `${icon} ${theme.fg("accent", p.name)} ${finished}/${inPhase.length}`;
+		if (phaseFailed > 0) line += theme.fg("error", ` (${phaseFailed} failed)`);
+		return `  ${line}`;
+	});
+
+	const rowName = (r: WorkflowAgentRow) => `${r.agent}${r.label ? ` [${r.label}]` : ""}`;
+	const mdTheme = getMarkdownTheme();
+	const body = details.status === "done" ? workflowResultBody(contentText) : "";
+
+	if (!expanded) {
+		let text = header;
+		if (phaseLines.length > 0) text += `\n${phaseLines.join("\n")}`;
+		if (running.length > 0) {
+			const shown = running
+				.slice(0, 5)
+				.map((r) => `${rowName(r)} ${formatDuration(now - (r.startedAt ?? now))}`)
+				.join(", ");
+			const more = running.length > 5 ? ` +${running.length - 5} more` : "";
+			text += `\n  ${theme.fg("muted", "running: ")}${theme.fg("dim", shown + more)}`;
+		}
+		const lastLog = details.logs[details.logs.length - 1];
+		if (lastLog && details.status === "running") {
+			text += `\n  ${theme.fg("muted", "last log: ")}${theme.fg("dim", preview(lastLog.split("\n")[0], 120))}`;
+		}
+		if (!body) {
+			if (rows.length > 0 || details.logs.length > 0) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
+			return new Text(text, 0, 0);
+		}
+		const container = new Container();
+		container.addChild(new Text(text, 0, 0));
+		container.addChild(new Spacer(1));
+		const lines = body.trim().split("\n");
+		container.addChild(new Markdown(lines.slice(0, 10).join("\n"), 0, 0, mdTheme));
+		container.addChild(new Text(theme.fg("muted", "(Ctrl+O to expand)"), 0, 0));
+		return container;
+	}
+
+	const container = new Container();
+	container.addChild(new Text(header, 0, 0));
+	if (phaseLines.length > 0) container.addChild(new Text(phaseLines.join("\n"), 0, 0));
+	if (rows.length > 0) {
+		container.addChild(new Spacer(1));
+		const rowLines = rows.map((r) => {
+			const parts = [`${rowIcon(r, theme)} ${theme.fg("accent", rowName(r))}`];
+			if (r.phase) parts.push(theme.fg("muted", r.phase));
+			if (r.isolated) parts.push(theme.fg("muted", "⌂"));
+			if (r.attempts > 1) parts.push(theme.fg("warning", `${r.attempts}×`));
+			if (r.startedAt) parts.push(theme.fg("dim", formatDuration((r.endedAt ?? now) - r.startedAt)));
+			if (r.cost > 0) parts.push(theme.fg("dim", `$${r.cost.toFixed(4)}`));
+			if (r.status === "failed") {
+				const why = [r.reason, r.error?.split("\n")[0]].filter(Boolean).join(": ");
+				if (why) parts.push(theme.fg("error", preview(why, 80)));
+			}
+			return `  ${parts.join(" ")}`;
+		});
+		container.addChild(new Text(rowLines.join("\n"), 0, 0));
+	}
+	if (details.logs.length > 0) {
+		container.addChild(new Spacer(1));
+		container.addChild(new Text(details.logs.map((l) => theme.fg("dim", `log: ${l}`)).join("\n"), 0, 0));
+	}
+	if (body) {
+		container.addChild(new Spacer(1));
+		container.addChild(new Markdown(body.trim(), 0, 0, mdTheme));
+	}
+	return container;
 }

@@ -8,23 +8,27 @@
  *   - cursor: `cursor-agent -p --output-format stream-json --force --trust`
  *     (optional frontmatter `mode: plan|ask` maps to `--mode` for read-only runs)
  *
- * Supports three modes:
+ * Supports four modes:
  *   - Single: { agent: "name", task: "..." }
  *   - Parallel: { tasks: [{ agent: "name", task: "..." }, ...] }
  *   - Chain: { chain: [{ agent: "name", task: "... {previous} ..." }, ...] }
+ *   - Workflow: { script: "...", args?: {...} } runs an orchestration script (workflow.ts)
  *
  * Uses JSON mode to capture structured output from subagents.
  *
  * Publishes cumulative subagent spend on `pi.events` (`subagent:spend`) for the status-bar extension.
  *
- * This file holds tool registration, spend tracking, and mode dispatch; the child-process
- * runner lives in runner.ts, TUI rendering in render.ts, shared types/helpers in types.ts.
+ * This file holds tool registration, spend tracking, approval, and mode dispatch; the child-process
+ * runner lives in runner.ts, the workflow runtime in workflow.ts, TUI rendering in render.ts,
+ * shared types/helpers in types.ts.
  */
 
+import { randomBytes } from "node:crypto";
 import { StringEnum } from "@earendil-works/pi-ai";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
+import { approvalsPath, isAutoApproved, projectKey, setAutoApproved } from "./approvals.ts";
 import { renderCall, renderResult } from "./render.ts";
 import { mapWithConcurrencyLimit, runSingleAgent } from "./runner.ts";
 import {
@@ -32,16 +36,18 @@ import {
 	getFinalOutput,
 	getResultOutput,
 	isFailedResult,
+	type LegacyDetails,
 	MAX_CONCURRENCY,
 	MAX_PARALLEL_TASKS,
 	type SingleResult,
 	SUBAGENT_SPEND_CHANNEL,
-	type SubagentDetails,
 	type SubagentSpend,
 	subagentCost,
 	TOOL_NAME,
 	truncateOutput,
+	type WorkflowDetails,
 } from "./types.ts";
+import { formatWorkflowResult, runWorkflow } from "./workflow.ts";
 
 export type { SubagentSpend } from "./types.ts";
 
@@ -76,7 +82,67 @@ const SubagentParams = Type.Object({
 		Type.Boolean({ description: "Prompt before running project-local agents. Default: true.", default: true }),
 	),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process (single mode)" })),
+	script: Type.Optional(
+		Type.String({
+			description:
+				"Inline workflow script: body of an async function using agent/parallel/pipeline/phase/log/args/applyPatch; must return plain data. See the `workflow` skill.",
+		}),
+	),
+	workflow: Type.Optional(Type.String({ description: "Name of a saved workflow to run (workflow mode)" })),
+	args: Type.Optional(
+		Type.Record(Type.String(), Type.Any(), { description: "Arguments for the workflow script, available as `args`" }),
+	),
 });
+
+type WorkflowApproval = { ok: true } | { ok: false; text: string; isError: boolean };
+
+/** Asks the user to approve a workflow run; persisted per-project auto-approval skips the dialog. */
+async function approveWorkflow(
+	ctx: ExtensionContext,
+	opts: { name: string; source: WorkflowDetails["source"]; script: string; agentCount: number; agentScope: AgentScope },
+): Promise<WorkflowApproval> {
+	const key = projectKey(ctx.cwd);
+	if (isAutoApproved(key)) {
+		if (ctx.hasUI) ctx.ui.notify(`Workflow "${opts.name}" auto-approved for this project`, "info");
+		return { ok: true };
+	}
+	if (!ctx.hasUI) {
+		if (opts.source !== "inline") return { ok: true };
+		return {
+			ok: false,
+			isError: true,
+			text:
+				'Inline workflow scripts need interactive approval. Start a TUI session and choose "Auto-approve for this project", ' +
+				`or save the script as .pi/workflows/<name>.js and call spawn({workflow: "<name>"}). (Auto-approvals live in ${approvalsPath()}.)`,
+		};
+	}
+	const lines = opts.script.split("\n").length;
+	const title = `Run workflow "${opts.name}"? (${lines} lines, ${opts.agentCount} agents available, scope ${opts.agentScope})`;
+	const RUN = "Run";
+	const VIEW = "View script";
+	const AUTO = "Auto-approve for this project and run";
+	const CANCEL = "Cancel";
+	while (true) {
+		const choice = await ctx.ui.select(title, [RUN, VIEW, AUTO, CANCEL]);
+		if (choice === RUN) return { ok: true };
+		if (choice === VIEW) {
+			await ctx.ui.editor(`Workflow "${opts.name}" — view only, edits are ignored`, opts.script);
+			continue;
+		}
+		if (choice === AUTO) {
+			await setAutoApproved(key);
+			return { ok: true };
+		}
+		return { ok: false, isError: false, text: "Canceled: workflow not approved." };
+	}
+}
+
+function workflowProgressText(d: WorkflowDetails): string {
+	const running = d.agents.filter((a) => a.status === "running").length;
+	const done = d.agents.filter((a) => a.status === "done").length;
+	const failed = d.agents.filter((a) => a.status === "failed").length;
+	return `Workflow "${d.name}": ${done} done, ${failed} failed, ${running} running, $${subagentCost(d).toFixed(4)}`;
+}
 
 export default function (pi: ExtensionAPI) {
 	// Advertise user-scope agents in the tool description so the model knows what exists
@@ -131,7 +197,8 @@ export default function (pi: ExtensionAPI) {
 		label: "Subagent",
 		description: [
 			"Delegate tasks to specialized subagents with isolated context.",
-			"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
+			"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder),",
+			"workflow (script + optional args: a JS orchestration script using agent/parallel/pipeline/phase/log/args/applyPatch; load the workflow skill before writing one).",
 			'Default agent scope is "user" (from ~/.pi/agent/agents).',
 			'To enable project-local agents in .pi/agents, set agentScope: "both" (or "project").',
 			...(startupAgents.length > 0
@@ -149,11 +216,12 @@ export default function (pi: ExtensionAPI) {
 			const hasChain = (params.chain?.length ?? 0) > 0;
 			const hasTasks = (params.tasks?.length ?? 0) > 0;
 			const hasSingle = Boolean(params.agent && params.task);
-			const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle);
+			const hasWorkflow = Boolean(params.script) || Boolean(params.workflow);
+			const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle) + Number(hasWorkflow);
 
 			const makeDetails =
 				(mode: "single" | "parallel" | "chain") =>
-				(results: SingleResult[]): SubagentDetails => ({
+				(results: SingleResult[]): LegacyDetails => ({
 					mode,
 					agentScope,
 					projectAgentsDir: discovery.projectAgentsDir,
@@ -170,6 +238,102 @@ export default function (pi: ExtensionAPI) {
 						},
 					],
 					details: makeDetails("single")([]),
+				};
+			}
+
+			if (hasWorkflow) {
+				if (params.workflow) {
+					return {
+						content: [{ type: "text", text: "Saved workflows not available: pass an inline `script` instead." }],
+						details: makeDetails("single")([]),
+						isError: true,
+					};
+				}
+				const script = params.script ?? "";
+				const name = "inline";
+				const source: WorkflowDetails["source"] = "inline";
+				const runId = `wf-${Date.now().toString(36)}-${randomBytes(2).toString("hex")}`;
+				const baseDetails = (status: WorkflowDetails["status"]): WorkflowDetails => ({
+					mode: "workflow",
+					agentScope,
+					projectAgentsDir: discovery.projectAgentsDir,
+					runId,
+					name,
+					source,
+					script,
+					args: params.args ?? {},
+					status,
+					phases: [],
+					agents: [],
+					spawned: 0,
+					logs: [],
+					results: [],
+					startedAt: Date.now(),
+				});
+
+				const approval = await approveWorkflow(ctx, {
+					name,
+					source,
+					script,
+					agentCount: agents.filter((a) => a.runner === "pi").length,
+					agentScope,
+				});
+				if (!approval.ok) {
+					return {
+						content: [{ type: "text", text: approval.text }],
+						details: baseDetails("canceled"),
+						isError: approval.isError,
+					};
+				}
+
+				const outcome = await runWorkflow({
+					runId,
+					name,
+					source,
+					script,
+					args: params.args ?? {},
+					cwd: ctx.cwd,
+					agents,
+					agentScope,
+					projectAgentsDir: discovery.projectAgentsDir,
+					signal,
+					runner: runSingleAgent,
+					onProgress: onUpdate
+						? (d) => onUpdate({ content: [{ type: "text", text: workflowProgressText(d) }], details: d })
+						: undefined,
+				});
+				const d = outcome.details;
+				const cost = subagentCost(d).toFixed(4);
+				if (d.status === "done") {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Workflow "${name}" finished: ${d.spawned} agents, $${cost}\n\n${formatWorkflowResult(outcome.result)}`,
+							},
+						],
+						details: d,
+					};
+				}
+				if (d.status === "aborted") {
+					return {
+						content: [{ type: "text", text: `Workflow aborted after ${d.spawned} agents ($${cost})` }],
+						details: d,
+						isError: true,
+					};
+				}
+				const logTail = d.logs.slice(-20);
+				return {
+					content: [
+						{
+							type: "text",
+							text:
+								`Workflow "${name}" failed: ${d.error ?? "unknown error"}` +
+								(logTail.length > 0 ? `\n\nLast logs:\n${logTail.join("\n")}` : ""),
+						},
+					],
+					details: d,
+					isError: true,
 				};
 			}
 

@@ -23,6 +23,8 @@ export interface RunSpec {
 	signal?: AbortSignal;
 	/** Receives the live in-progress result after every parsed event. */
 	onUpdate?: (partial: SingleResult) => void;
+	/** Tools excluded on top of the agent's own `excludedTools` (pi runner only). */
+	extraExcludedTools?: string[];
 	/** Resolves the pi command line; defaults to getPiInvocation. */
 	piInvocation?: (args: string[]) => { command: string; args: string[] };
 }
@@ -192,7 +194,7 @@ export async function runSingleAgent(spec: RunSpec): Promise<SingleResult> {
 	}
 
 	const isCursor = agent.runner === "cursor";
-	const args = isCursor ? buildCursorArgs(agent) : buildPiArgs(agent);
+	const args = isCursor ? buildCursorArgs(agent) : buildPiArgs(agent, spec.extraExcludedTools);
 
 	let tmpPromptDir: string | null = null;
 	let tmpPromptPath: string | null = null;

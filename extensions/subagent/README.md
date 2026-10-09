@@ -32,11 +32,24 @@ See [`../../agents/`](../../agents/). Agents are markdown files with YAML frontm
 
 The bundled prompts under [`../../prompts/`](../../prompts/) (`implement.md`, `scout-and-plan.md`, `implement-and-review.md`) are plain prompt templates that tell the parent agent to use the `spawn` tool with a specific `chain`. They're surfaced as slash commands (`/implement`, `/scout-and-plan`, `/implement-and-review`) by pi's normal prompt template loading.
 
+## Workflow mode
+
+`spawn({ script, args? })` runs a JS orchestration script: the body of an async function that receives `agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, `applyPatch` (plus `console.*` aliased to `log`) and must return plain data. The script runs in a bare `node:vm` context inside a worker thread, so a runaway loop never blocks pi and abort terminates it immediately.
+
+- `agent(prompt, { agent?, label? })` runs one pi agent (default `general`; cursor agents are rejected) and resolves to `{ ok, output, error?, reason?, followUps, usage, … }` — child failures are values, never throws. At most 16 agents run at once.
+- Every child gets `--exclude-tools spawn,subagent` merged with its own `excludedTools`, so children never spawn agents. A child asks for more work by ending its reply with a ```` ```followups ```` JSON block of `{task, agent}`; it comes back in `followUps` for the script to queue.
+- Each child process is a `details.results[]` entry (messages dropped), so spend tracking covers workflows live and after the run.
+- The final result is returned uncapped.
+- Approval: in TUI/RPC sessions every run asks Run / View script / Auto-approve for this project / Cancel. Auto-approvals are stored per git toplevel in `~/.pi/agent/workflow-approvals.json`. Without a UI (print/json mode) inline scripts run only in auto-approved projects.
+
 ## Files
 
-- `index.ts` — tool registration and params, spend tracking, single/parallel/chain dispatch.
+- `index.ts` — tool registration and params, spend tracking, workflow approval, single/parallel/chain/workflow dispatch.
 - `runner.ts` — child-process runner (`runSingleAgent`, `buildPiArgs`), pi/cursor event parsing, concurrency helper. No TUI imports.
-- `render.ts` — `renderCall` / `renderResult` and formatting helpers.
+- `render.ts` — `renderCall` / `renderResult` (incl. workflow progress) and formatting helpers.
+- `workflow.ts` — workflow runtime host (`runWorkflow`): worker lifecycle, concurrency, `agent()` dispatch, progress, follow-up parsing.
+- `workflow-worker-source.ts` — worker thread source (plain JS string) that runs the script in `node:vm`.
+- `approvals.ts` — per-project workflow auto-approval file.
 - `types.ts` — shared types (`SingleResult`, `SubagentDetails`, `SubagentSpend`), constants, pure result helpers.
 - `agents.ts` — filesystem discovery of `*.md` agent definitions (user + optional project scope).
 

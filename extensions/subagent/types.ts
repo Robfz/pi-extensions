@@ -40,12 +40,133 @@ export interface SingleResult {
 	step?: number;
 }
 
-export interface SubagentDetails {
+export interface LegacyDetails {
 	mode: "single" | "parallel" | "chain";
 	agentScope: AgentScope;
 	projectAgentsDir: string | null;
 	results: SingleResult[];
 }
+
+export type SubagentDetails = LegacyDetails | WorkflowDetails;
+
+/** Default agent for workflow `agent()` calls that name none. */
+export const DEFAULT_WORKFLOW_AGENT = "general";
+export const DEFAULT_WORKFLOW_CONCURRENCY = 16;
+/** Forced on every workflow child: children never spawn agents themselves. */
+export const WORKFLOW_CHILD_EXCLUDED_TOOLS = ["spawn", "subagent"];
+
+/** `agent()` call parameters sent from the worker to the host. */
+export interface WorkflowAgentCall {
+	prompt: string;
+	/** Defaults to DEFAULT_WORKFLOW_AGENT. */
+	agent?: string;
+	/** JSON Schema the agent's output must validate against. */
+	schema?: Record<string, unknown>;
+	/** Milliseconds for the whole call. */
+	timeout?: number;
+	isolation?: "worktree";
+	label?: string;
+	/** Current phase name, filled in by the worker. */
+	phase?: string;
+}
+
+export type WorkflowFailReason = "error" | "timeout" | "aborted" | "schema" | "unknown-agent" | "isolation";
+
+export interface WorkflowFollowUp {
+	task: string;
+	agent: string;
+}
+
+/** Value an `agent()` call resolves to inside the script; structured-clone safe. */
+export interface WorkflowAgentResult {
+	ok: boolean;
+	agent: string;
+	label?: string;
+	phase?: string;
+	/** Final assistant text with the followups block stripped. */
+	output: string;
+	/** Validated JSON when a schema was given. */
+	data?: unknown;
+	error?: string;
+	reason?: WorkflowFailReason;
+	followUps: WorkflowFollowUp[];
+	/** Changes made in an isolated worktree. */
+	patch?: string;
+	/** Child processes run for this call (1 + schema retries). */
+	attempts: number;
+	/** Summed across attempts. */
+	usage: UsageStats;
+	model?: string;
+	durationMs: number;
+}
+
+/** One per `agent()` call, for rendering. */
+export interface WorkflowAgentRow {
+	id: number;
+	agent: string;
+	label?: string;
+	phase?: string;
+	/** Index into WorkflowDetails.phases of the phase this call ran in. */
+	phaseIndex?: number;
+	status: "queued" | "running" | "done" | "failed";
+	reason?: WorkflowFailReason;
+	error?: string;
+	startedAt?: number;
+	endedAt?: number;
+	attempts: number;
+	cost: number;
+	isolated?: boolean;
+}
+
+export interface WorkflowPhase {
+	name: string;
+	status: "running" | "done";
+	startedAt: number;
+	endedAt?: number;
+	/** Calls in this phase that started running. */
+	spawned: number;
+	done: number;
+	failed: number;
+}
+
+export type WorkflowStatus = "pending-approval" | "canceled" | "running" | "done" | "failed" | "aborted";
+
+export interface WorkflowDetails {
+	mode: "workflow";
+	agentScope: AgentScope;
+	projectAgentsDir: string | null;
+	runId: string;
+	/** Saved workflow name, or "inline". */
+	name: string;
+	source: "inline" | "user" | "project";
+	script: string;
+	args: unknown;
+	status: WorkflowStatus;
+	phases: WorkflowPhase[];
+	agents: WorkflowAgentRow[];
+	/** `agent()` calls that started running. */
+	spawned: number;
+	logs: string[];
+	/** One entry per child process (attempt), `messages` dropped; spend tracking sums `usage.cost`. */
+	results: SingleResult[];
+	error?: string;
+	startedAt: number;
+	endedAt?: number;
+}
+
+/** Host → worker messages. */
+export type HostToWorker =
+	| { type: "response"; id: number; ok: true; value: unknown }
+	| { type: "response"; id: number; ok: false; error: string };
+
+/** Worker → host messages. */
+export type WorkerToHost =
+	| { type: "call"; id: number; method: "agent"; params: WorkflowAgentCall }
+	| { type: "call"; id: number; method: "applyPatch"; params: { patch: string } }
+	| { type: "log"; text: string }
+	| { type: "phase"; name: string; event: "start" | "end" }
+	| { type: "done"; result: unknown }
+	| { type: "error"; message: string; stack?: string };
 
 /** Published on `pi.events` channel "subagent:spend" (see SUBAGENT_SPEND_CHANNEL). */
 export interface SubagentSpend {

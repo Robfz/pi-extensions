@@ -159,6 +159,7 @@ export function formatCursorToolResult(result: unknown): { text: string; isError
 export function buildPiArgs(agent: AgentConfig, extraExcludedTools: string[] = []): string[] {
 	const args = ["--mode", "json", "-p", "--no-session"];
 	if (agent.model) args.push("--model", agent.model);
+	if (agent.thinking) args.push("--thinking", agent.thinking);
 	if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
 	const excluded = [...new Set([...(agent.excludedTools ?? []), ...extraExcludedTools])];
 	if (excluded.length > 0) args.push("--exclude-tools", excluded.join(","));

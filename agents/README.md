@@ -3,7 +3,7 @@
 Subagent definitions consumed by the `subagent` extension's `spawn` tool (see [`../extensions/subagent/`](../extensions/subagent/)).
 
 - **Pi scans:** `~/.pi/agent/agents/*.md` (user scope, always loaded). The `spawn` tool also reads `.pi/agents/*.md` from the project tree when `agentScope: "both"` or `"project"`.
-- **Format:** Markdown with YAML frontmatter. Required keys: `name`, `description`. Optional: `tools` (comma-separated allowlist → `pi --tools`), `excludedTools` (comma-separated denylist → `pi --exclude-tools`, pi runner only; the agent gets pi's default tools plus extension/MCP tools, minus the listed exact names; applied after `tools:` if both are set), `model`, `runner` (`pi` default, or `cursor` for Cursor CLI — see below), `mode` (cursor runner only: `plan` or `ask` for CLI-enforced read-only).
+- **Format:** Markdown with YAML frontmatter. Required keys: `name`, `description`. Optional: `tools` (comma-separated allowlist → `pi --tools`), `excludedTools` (comma-separated denylist → `pi --exclude-tools`, pi runner only; the agent gets pi's default tools plus extension/MCP tools, minus the listed exact names; applied after `tools:` if both are set), `model`, `thinking` (pi runner only: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max` → `pi --thinking`; an invalid value or a cursor agent with `thinking:` is skipped), `runner` (`pi` default, or `cursor` for Cursor CLI — see below), `mode` (cursor runner only: `plan` or `ask` for CLI-enforced read-only).
 
   ```markdown
   ---
@@ -43,6 +43,17 @@ Local additions:
 | `web-scout` | Web research recon, returns compressed, cited findings; is instructed to call `web_enable` first; MCP access via `tool_search`; read-only is prompt-level, not enforced | Sonnet 5.5 | read, bash, `tool_search` (+ MCP), `web_enable` (+ web tools) |
 | `figma-scout` | Explore a Figma node URL via the Figma remote MCP (`mcp__figma__*`, loaded with `tool_search`), report implementation-ready specs; read-only and Figma-only are prompt-level, not enforced | Opus 5.5 | read, bash, `tool_search` (+ MCP) |
 | `cross-reviewer` | Cross-model code review from an OpenAI model — independent eyes vs. Anthropic/Cursor authors (`runner: cursor`, `mode: plan`) | GPT-5.6 Terra Medium | read-only (plan mode) |
+
+Workflow agents (used by `spawn` workflow scripts such as [`../workflows/review.js`](../workflows/review.js); usable as plain agents too):
+
+| Agent | Purpose | Model | Tools |
+|---|---|---|---|
+| `general` | Default agent for workflow `agent()` calls. Its body is empty on purpose: the agent runs on pi's own system prompt with the task as its only instruction | pi default | (all default) minus `spawn`, `subagent` |
+| `judge` | Merges and dedupes findings from several reviewers into one list with stable ids (`F1`, …) | Opus 5.5 | read, grep, find, ls, bash (read-only by prompt) |
+| `adversarial-reviewer` | Tries to refute one finding against the code; verdict `stands` / `refuted` / `uncertain` (`thinking: high`) | Opus 5.5 | read, grep, find, ls, bash (read-only by prompt) |
+| `verifier` | Verifies one finding by running code in a throwaway worktree: repro tests, test suites, dependency installs; never commits | Opus 5.5 | (all default) minus `spawn`, `subagent` |
+
+All four exclude `spawn` and `subagent` so they can't launch agents of their own. Workflow mode also forces that exclusion on every child it runs, whatever the agent file says.
 
 ## Cursor runner
 

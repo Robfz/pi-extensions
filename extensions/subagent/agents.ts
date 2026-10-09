@@ -18,6 +18,11 @@ export type AgentMode = "plan" | "ask";
 
 const VALID_MODES: readonly string[] = ["plan", "ask"];
 
+/** pi `--thinking` levels. */
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+const VALID_THINKING: readonly string[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
 export interface AgentConfig {
 	name: string;
 	description: string;
@@ -26,6 +31,8 @@ export interface AgentConfig {
 	/** Only used by the pi runner (maps to `pi --exclude-tools`). */
 	excludedTools?: string[];
 	model?: string;
+	/** Only used by the pi runner (maps to `pi --thinking`). */
+	thinking?: ThinkingLevel;
 	/** Only used by the cursor runner (maps to `cursor-agent --mode`). */
 	mode?: AgentMode;
 	systemPrompt: string;
@@ -59,6 +66,7 @@ type AgentFrontmatter = {
 	runner?: string;
 	mode?: string;
 	model?: string;
+	thinking?: unknown;
 	tools?: unknown;
 	excludedTools?: unknown;
 };
@@ -122,8 +130,16 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			continue;
 		}
 
-		// `excludedTools` has no cursor-agent equivalent, so reject it there for the same reason.
-		if (excludedTools && frontmatter.runner === "cursor") {
+		// An empty `thinking:` parses as null and counts as absent, like the tool lists.
+		const thinking = frontmatter.thinking ?? undefined;
+
+		// `excludedTools` and `thinking` have no cursor-agent equivalent, so reject them there for the same reason.
+		if ((excludedTools || thinking !== undefined) && frontmatter.runner === "cursor") {
+			continue;
+		}
+
+		// Skip invalid thinking levels so typos surface as "Unknown agent".
+		if (thinking !== undefined && (typeof thinking !== "string" || !VALID_THINKING.includes(thinking))) {
 			continue;
 		}
 
@@ -134,6 +150,7 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			tools,
 			excludedTools,
 			model: frontmatter.model,
+			thinking: thinking as ThinkingLevel | undefined,
 			mode: frontmatter.mode as AgentMode | undefined,
 			systemPrompt: body,
 			source,
@@ -152,10 +169,11 @@ function isDirectory(p: string): boolean {
 	}
 }
 
-function findNearestProjectAgentsDir(cwd: string): string | null {
+/** Nearest `.pi/<subdir>` directory at or above `cwd`. */
+export function findNearestProjectDir(cwd: string, subdir: string): string | null {
 	let currentDir = cwd;
 	while (true) {
-		const candidate = path.join(currentDir, ".pi", "agents");
+		const candidate = path.join(currentDir, ".pi", subdir);
 		if (isDirectory(candidate)) return candidate;
 
 		const parentDir = path.dirname(currentDir);
@@ -166,7 +184,7 @@ function findNearestProjectAgentsDir(cwd: string): string | null {
 
 export function discoverAgents(cwd: string, scope: AgentScope): AgentDiscoveryResult {
 	const userDir = path.join(getAgentDir(), "agents");
-	const projectAgentsDir = findNearestProjectAgentsDir(cwd);
+	const projectAgentsDir = findNearestProjectDir(cwd, "agents");
 
 	const userAgents = scope === "project" ? [] : loadAgentsFromDir(userDir, "user");
 	const projectAgents = scope === "user" || !projectAgentsDir ? [] : loadAgentsFromDir(projectAgentsDir, "project");

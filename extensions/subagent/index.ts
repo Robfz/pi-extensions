@@ -12,7 +12,8 @@
  *   - Single: { agent: "name", task: "..." }
  *   - Parallel: { tasks: [{ agent: "name", task: "..." }, ...] }
  *   - Chain: { chain: [{ agent: "name", task: "... {previous} ..." }, ...] }
- *   - Workflow: { script: "...", args?: {...} } runs an orchestration script (workflow.ts)
+ *   - Workflow: { workflow: "name" } or { script: "..." }, plus args?: {...}, runs an orchestration script
+ *     (workflow.ts; saved scripts are found by saved-workflows.ts)
  *
  * Uses JSON mode to capture structured output from subagents.
  *
@@ -31,6 +32,7 @@ import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
 import { approvalsPath, isAutoApproved, projectKey, setAutoApproved } from "./approvals.ts";
 import { renderCall, renderResult } from "./render.ts";
 import { mapWithConcurrencyLimit, runSingleAgent } from "./runner.ts";
+import { discoverWorkflows, resolveWorkflow } from "./saved-workflows.ts";
 import {
 	emptyUsage,
 	getFinalOutput,
@@ -99,7 +101,15 @@ type WorkflowApproval = { ok: true } | { ok: false; text: string; isError: boole
 /** Asks the user to approve a workflow run; persisted per-project auto-approval skips the dialog. */
 async function approveWorkflow(
 	ctx: ExtensionContext,
-	opts: { name: string; source: WorkflowDetails["source"]; script: string; agentCount: number; agentScope: AgentScope },
+	opts: {
+		name: string;
+		source: WorkflowDetails["source"];
+		/** Saved workflows only. */
+		filePath?: string;
+		script: string;
+		agentCount: number;
+		agentScope: AgentScope;
+	},
 ): Promise<WorkflowApproval> {
 	const key = projectKey(ctx.cwd);
 	if (isAutoApproved(key)) {
@@ -113,11 +123,12 @@ async function approveWorkflow(
 			isError: true,
 			text:
 				'Inline workflow scripts need interactive approval. Start a TUI session and choose "Auto-approve for this project", ' +
-				`or save the script as .pi/workflows/<name>.js and call spawn({workflow: "<name>"}). (Auto-approvals live in ${approvalsPath()}.)`,
+				`or save the script as .pi/workflows/<name>.js and call spawn({workflow: "<name>", agentScope: "both"}). (Auto-approvals live in ${approvalsPath()}.)`,
 		};
 	}
 	const lines = opts.script.split("\n").length;
-	const title = `Run workflow "${opts.name}"? (${lines} lines, ${opts.agentCount} agents available, scope ${opts.agentScope})`;
+	const from = opts.filePath ? ` from ${opts.filePath}` : "";
+	const title = `Run workflow "${opts.name}"${from}? (${lines} lines, ${opts.agentCount} agents available, scope ${opts.agentScope})`;
 	const RUN = "Run";
 	const VIEW = "View script";
 	const AUTO = "Auto-approve for this project and run";
@@ -145,9 +156,10 @@ function workflowProgressText(d: WorkflowDetails): string {
 }
 
 export default function (pi: ExtensionAPI) {
-	// Advertise user-scope agents in the tool description so the model knows what exists
-	// without a failed probe call. Discovered once at registration; execute() re-discovers.
+	// Advertise user-scope agents and saved workflows in the tool description so the model knows what
+	// exists without a failed probe call. Discovered once at registration; execute() re-discovers.
 	const startupAgents = discoverAgents(process.cwd(), "user").agents;
+	const startupWorkflows = discoverWorkflows(process.cwd(), "user");
 
 	// Subagent spend: finished calls (persisted as toolResult entries) + latest cumulative cost per in-flight call.
 	let committedCost = 0;
@@ -198,11 +210,16 @@ export default function (pi: ExtensionAPI) {
 		description: [
 			"Delegate tasks to specialized subagents with isolated context.",
 			"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder),",
-			"workflow (script + optional args: a JS orchestration script using agent/parallel/pipeline/phase/log/args/applyPatch; load the workflow skill before writing one).",
-			'Default agent scope is "user" (from ~/.pi/agent/agents).',
-			'To enable project-local agents in .pi/agents, set agentScope: "both" (or "project").',
+			"workflow ({workflow: name, args} runs a saved JS orchestration script, {script, args} an inline one; load the workflow skill before writing a script).",
+			'Default agent scope is "user" (agents from ~/.pi/agent/agents, workflows from ~/.pi/agent/workflows).',
+			'To enable project-local agents in .pi/agents and workflows in .pi/workflows, set agentScope: "both" (or "project").',
 			...(startupAgents.length > 0
-				? [`Available user agents: ${startupAgents.map((a) => `${a.name} — ${a.description}`).join("; ")}`]
+				? [`Available user agents: ${startupAgents.map((a) => `${a.name} — ${a.description}`).join("; ")}.`]
+				: []),
+			...(startupWorkflows.length > 0
+				? [
+						`Saved user workflows: ${startupWorkflows.map((w) => (w.description ? `${w.name} — ${w.description}` : w.name)).join("; ")}`,
+					]
 				: []),
 		].join(" "),
 		parameters: SubagentParams,
@@ -242,16 +259,36 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (hasWorkflow) {
-				if (params.workflow) {
+				if (params.workflow && params.script) {
 					return {
-						content: [{ type: "text", text: "Saved workflows not available: pass an inline `script` instead." }],
+						content: [
+							{ type: "text", text: "Invalid parameters. Pass either `workflow` (saved) or `script` (inline), not both." },
+						],
 						details: makeDetails("single")([]),
 						isError: true,
 					};
 				}
-				const script = params.script ?? "";
-				const name = "inline";
-				const source: WorkflowDetails["source"] = "inline";
+				const saved = params.workflow ? resolveWorkflow(ctx.cwd, params.workflow, agentScope) : null;
+				if (params.workflow && !saved) {
+					const available = discoverWorkflows(ctx.cwd, agentScope).map((w) => `${w.name} (${w.source})`);
+					// Project workflows are opt-in like project agents; say so when the name exists there.
+					const hidden = agentScope === "user" ? resolveWorkflow(ctx.cwd, params.workflow, "project") : null;
+					return {
+						content: [
+							{
+								type: "text",
+								text:
+									`Unknown workflow "${params.workflow}" (scope ${agentScope}). Available workflows: ${available.join(", ") || "none"}.` +
+									(hidden ? ` A project workflow exists at ${hidden.filePath}; pass agentScope: "both" to use it.` : ""),
+							},
+						],
+						details: makeDetails("single")([]),
+						isError: true,
+					};
+				}
+				const script = saved ? saved.script : (params.script ?? "");
+				const name = saved ? saved.name : "inline";
+				const source: WorkflowDetails["source"] = saved ? saved.source : "inline";
 				const runId = `wf-${Date.now().toString(36)}-${randomBytes(2).toString("hex")}`;
 				const baseDetails = (status: WorkflowDetails["status"]): WorkflowDetails => ({
 					mode: "workflow",
@@ -274,6 +311,7 @@ export default function (pi: ExtensionAPI) {
 				const approval = await approveWorkflow(ctx, {
 					name,
 					source,
+					filePath: saved?.filePath,
 					script,
 					agentCount: agents.filter((a) => a.runner === "pi").length,
 					agentScope,

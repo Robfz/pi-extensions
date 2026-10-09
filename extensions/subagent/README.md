@@ -1,6 +1,6 @@
 # subagent extension
 
-Vendored, near-verbatim copy of the upstream subagent example from `@earendil-works/pi-coding-agent` (`examples/extensions/subagent/`). Two source files (~1.1 kloc), small enough that we own the surface area and can tweak it here.
+Derived from the upstream subagent example in `@earendil-works/pi-coding-agent` (`examples/extensions/subagent/`), split into five source files (~1.6 kloc) and extended locally (see Departures).
 
 ## What it does
 
@@ -34,13 +34,16 @@ The bundled prompts under [`../../prompts/`](../../prompts/) (`implement.md`, `s
 
 ## Files
 
-- `index.ts` — tool registration, child-process orchestration, TUI rendering.
+- `index.ts` — tool registration and params, spend tracking, single/parallel/chain dispatch.
+- `runner.ts` — child-process runner (`runSingleAgent`, `buildPiArgs`), pi/cursor event parsing, concurrency helper. No TUI imports.
+- `render.ts` — `renderCall` / `renderResult` and formatting helpers.
+- `types.ts` — shared types (`SingleResult`, `SubagentDetails`, `SubagentSpend`), constants, pure result helpers.
 - `agents.ts` — filesystem discovery of `*.md` agent definitions (user + optional project scope).
 
 ## Departures from upstream
 
-- **Cursor runner** (`agents.ts`, `index.ts`): agents can declare `runner: cursor` in frontmatter to execute on Cursor's `cursor-agent` CLI (headless mode, Composer 2.5 et al.) instead of a `pi` subprocess. See [`../../agents/README.md`](../../agents/README.md) for frontmatter semantics.
-- **Tool denylist** (`agents.ts`, `index.ts`): pi-runner agents can declare `excludedTools:` (comma-separated string or YAML list) to pass `--exclude-tools`, keeping every other tool including extension/MCP tools.
+- **Cursor runner** (`agents.ts`, `runner.ts`): agents can declare `runner: cursor` in frontmatter to execute on Cursor's `cursor-agent` CLI (headless mode, Composer 2.5 et al.) instead of a `pi` subprocess. See [`../../agents/README.md`](../../agents/README.md) for frontmatter semantics.
+- **Tool denylist** (`agents.ts`, `runner.ts`): pi-runner agents can declare `excludedTools:` (comma-separated string or YAML list) to pass `--exclude-tools`, keeping every other tool including extension/MCP tools.
 - **Spend event** (`index.ts`): publishes cumulative subagent cost as `{ cost, hasRun }` on `pi.events` channel `subagent:spend` (payload type `SubagentSpend`).
 - **Tool name** (`index.ts`): the tool is `spawn` instead of upstream's `subagent`, so it can load next to the [`pi-subagents`](https://github.com/nicobailon/pi-subagents) package, which registers `subagent` (pi refuses duplicate tool names). Agents that deny delegation list both names in `excludedTools`.
 - **Dynamic tool description** (`index.ts`): user-scope agents discovered at registration are listed (name + description) in the `spawn` tool description, so the model knows what's available without a failed probe call. New agent files need a session restart to be advertised (invocation itself always uses fresh discovery).

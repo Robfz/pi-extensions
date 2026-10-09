@@ -338,7 +338,7 @@ function installFooter(initialCtx: ExtensionContext): void {
 // ---------- entry --------------------------------------------------------------------------
 
 export default function (pi: ExtensionAPI) {
-	// Channel name matches SUBAGENT_SPEND_CHANNEL in ./subagent/index.ts.
+	// Channel name matches SUBAGENT_SPEND_CHANNEL in ./subagent/types.ts.
 	pi.events.on("subagent:spend", (data) => {
 		subagentSpend = data as SubagentSpend;
 		tuiRef?.requestRender();

@@ -12,7 +12,7 @@ pi loads each of these from a directory under `~/.pi/agent/`. This repo keeps th
 │   ├── status-bar.ts
 │   ├── exit-command.ts
 │   ├── label.ts
-│   └── subagent/         # directory-form (index.ts + agents.ts + README)
+│   └── subagent/         # directory-form (index.ts + runner/render/types/agents + README)
 ├── agents/            # subagent defs (.md)  → ~/.pi/agent/agents/          (symlinked)
 ├── skills/            # Agent Skills         → ~/.pi/agent/skills/          (symlinked)
 ├── themes/            # .json TUI themes     → ~/.pi/agent/themes/          (symlinked)

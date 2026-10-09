@@ -1,6 +1,6 @@
 ---
 name: judge
-description: Merges and dedupes findings from several reviewers into one list with stable ids, keeping the strongest evidence and highest severity. Read-only. Used by review workflows.
+description: Merges and dedupes findings from several reviewers into one list with stable ids, keeping the strongest evidence and highest severity. Read-only. Used by the review ultraspawn.
 tools: read, grep, find, ls, bash
 excludedTools: spawn, subagent
 model: claude-opus-5-5

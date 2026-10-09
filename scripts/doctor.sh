@@ -4,7 +4,7 @@
 #
 # Verify the symlink wiring between this repo and ~/.pi/agent/:
 #
-#   1. Every repo entry (extensions/agents/skills/themes/prompts/workflows, plus
+#   1. Every repo entry (extensions/agents/skills/themes/prompts/ultraspawns, plus
 #      APPEND_SYSTEM.md) has a symlink under ~/.pi/agent/ pointing at it.
 #   2. Every entry inside ~/.pi/agent/<kind>/ is a symlink into this repo —
 #      flags real files, broken symlinks, and symlinks pointing elsewhere,
@@ -19,7 +19,7 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
-KINDS="extensions agents skills themes prompts workflows"
+KINDS="extensions agents skills themes prompts ultraspawns"
 TOP_FILES="APPEND_SYSTEM.md"
 
 problems=0

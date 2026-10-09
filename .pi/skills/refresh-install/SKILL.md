@@ -25,7 +25,7 @@ Summarize the drift before fixing anything.
 
 ## 2. Fix symlinks
 
-`scripts/link.sh` links every entry of `extensions/`, `agents/`, `skills/`, `themes/`, `prompts/`, and `workflows/` (saved workflow scripts → `~/.pi/agent/workflows/`), plus `APPEND_SYSTEM.md`. It creates and repoints links but never prunes. When an entry is renamed or deleted in the repo, doctor reports its old link as `broken:`. This also covers links directly under `~/.pi/agent/` whose repo target is gone (e.g. `mcp.json` left pointing at a file the repo no longer tracks). Remove each broken link that points into this repo:
+`scripts/link.sh` links every entry of `extensions/`, `agents/`, `skills/`, `themes/`, `prompts/`, and `ultraspawns/` (saved ultraspawn scripts → `~/.pi/agent/ultraspawns/`), plus `APPEND_SYSTEM.md`. It creates and repoints links but never prunes. When an entry is renamed or deleted in the repo, doctor reports its old link as `broken:`. This also covers links directly under `~/.pi/agent/` whose repo target is gone (e.g. `mcp.json` left pointing at a file the repo no longer tracks). Remove each broken link that points into this repo:
 
 ```sh
 rm ~/.pi/agent/<kind>/<name>   # or ~/.pi/agent/<name> for top-level links
@@ -73,4 +73,4 @@ pi mcp list
 
 MCP servers are configured per machine in `~/.pi/agent/mcp.json`, which the repo doesn't manage; don't create or edit it. Report what `pi mcp list` shows. Servers that need sign-in are the user's to authenticate via `/mcp`; never touch `~/.pi/agent/mcp-auth.json`.
 
-Finish with a short summary of what changed. If any extensions, agents, skills, workflows, or settings changed, tell the user to restart pi.
+Finish with a short summary of what changed. If any extensions, agents, skills, ultraspawns, or settings changed, tell the user to restart pi.

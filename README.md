@@ -2,7 +2,7 @@
 
 Canonical home for my customizations to the [pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent): extensions, skills, themes, prompt templates, and settings.
 
-pi loads each of these from a directory under `~/.pi/agent/`. This repo keeps the real source under version control; everything in `~/.pi/agent/{extensions,agents,skills,themes,prompts,workflows}/` should be a symlink into the matching directory here. Settings are handled differently — see [`settings/`](settings/README.md).
+pi loads each of these from a directory under `~/.pi/agent/`. This repo keeps the real source under version control; everything in `~/.pi/agent/{extensions,agents,skills,themes,prompts,ultraspawns}/` should be a symlink into the matching directory here. Settings are handled differently — see [`settings/`](settings/README.md).
 
 ## Repo layout
 
@@ -17,7 +17,7 @@ pi loads each of these from a directory under `~/.pi/agent/`. This repo keeps th
 ├── skills/            # Agent Skills         → ~/.pi/agent/skills/          (symlinked)
 ├── themes/            # .json TUI themes     → ~/.pi/agent/themes/          (symlinked)
 ├── prompts/           # .md prompt templates → ~/.pi/agent/prompts/         (symlinked)
-├── workflows/         # .js workflow scripts → ~/.pi/agent/workflows/       (symlinked)
+├── ultraspawns/         # .js ultraspawn scripts → ~/.pi/agent/ultraspawns/     (symlinked)
 ├── settings/          # curated settings.json → ~/.pi/agent/settings.json   (merged via script)
 ├── APPEND_SYSTEM.md   # appended to system prompt → ~/.pi/agent/APPEND_SYSTEM.md (symlinked)
 ├── scripts/           # apply-settings.sh, link.sh, doctor.sh
@@ -43,7 +43,7 @@ Pi discovers each kind of customization by scanning a fixed directory under `~/.
 
 - editing a file in this repo edits what pi loads;
 - `git status` here is the source of truth;
-- nothing in `~/.pi/agent/{extensions,agents,skills,themes,prompts,workflows}/` is "real" — every entry there should be a symlink into this repo.
+- nothing in `~/.pi/agent/{extensions,agents,skills,themes,prompts,ultraspawns}/` is "real" — every entry there should be a symlink into this repo.
 
 Verify with `ls -la ~/.pi/agent/<kind>/`; every line should show `-> <path-to-this-repo>/<kind>/...`.
 
@@ -51,7 +51,7 @@ One exception: Herdr, if installed, writes its pi state bridge to `~/.pi/agent/e
 
 ## Adding something new
 
-For extensions / skills / themes / prompts / workflows, see the per-directory README for the exact command, but the shape is always the same:
+For extensions / skills / themes / prompts / ultraspawns, see the per-directory README for the exact command, but the shape is always the same:
 
 1. Create the file (or folder, for directory-form skills) under the matching top-level directory.
 2. Symlink it into `~/.pi/agent/<kind>/` with the same basename.
@@ -93,7 +93,7 @@ Extension-specific:
 
 Repo-wide:
 
-- **Match upstream names** — repo directory names mirror the `~/.pi/agent/` paths (`extensions`, `skills`, `themes`, `prompts`, and `workflows`, which the `spawn` tool reads) so the symlink mapping is 1:1.
+- **Match upstream names** — repo directory names mirror the `~/.pi/agent/` paths (`extensions`, `skills`, `themes`, `prompts`, and `ultraspawns`, which the `spawn` tool reads) so the symlink mapping is 1:1.
 - **Per-directory README** — each top-level directory documents its own format and linking command. Keep the root README about cross-cutting concerns.
 
 ## Extensions
@@ -135,20 +135,20 @@ Two flavors of exit (all triggers are case-insensitive and must be the entire me
 
 ### `subagent`
 
-Directory-form extension under [`extensions/subagent/`](extensions/subagent/), vendored from the upstream example (`examples/extensions/subagent/` in `@earendil-works/pi-coding-agent`) with local additions: a Cursor CLI runner, an `excludedTools` tool denylist, a `thinking` level per agent, a tool description that lists the available agents, and workflow mode.
+Directory-form extension under [`extensions/subagent/`](extensions/subagent/), vendored from the upstream example (`examples/extensions/subagent/` in `@earendil-works/pi-coding-agent`) with local additions: a Cursor CLI runner, an `excludedTools` tool denylist, a `thinking` level per agent, a tool description that lists the available agents, and ultraspawn mode.
 
-Registers one tool, `spawn` (not `subagent`, which the `pi-subagents` package claims), with four modes: single (`{agent, task}`), parallel (`{tasks: […]}`, up to 8 / 4 concurrent / 50 KB output per task), chain (`{chain: […]}` with `{previous}` placeholder), and workflow (`{workflow}` or `{script}`, below). Each agent runs in a fresh subprocess chosen by its `runner:` frontmatter. Every runner's events are normalized into the same message shape, so streaming, chaining, and TUI rendering (collapsed by default, Ctrl+O to expand) are shared:
+Registers one tool, `spawn` (not `subagent`, which the `pi-subagents` package claims), with four modes: single (`{agent, task}`), parallel (`{tasks: […]}`, up to 8 / 4 concurrent / 50 KB output per task), chain (`{chain: […]}` with `{previous}` placeholder), and ultraspawn (`{ultraspawn}` or `{script}`, below). Each agent runs in a fresh subprocess chosen by its `runner:` frontmatter. Every runner's events are normalized into the same message shape, so streaming, chaining, and TUI rendering (collapsed by default, Ctrl+O to expand) are shared:
 
 | Runner | Subprocess | Notes |
 |---|---|---|
 | `pi` (default) | `pi --mode json -p --no-session` | System prompt via `--append-system-prompt`; `tools:` / `excludedTools:` / `model:` / `thinking:` frontmatter map to pi's tool allowlist (`--tools`), denylist (`--exclude-tools`), model, and `--thinking`. |
 | `cursor` | `cursor-agent -p --output-format stream-json --force --trust` | `model:` takes Cursor slugs; `tools:` is ignored and `excludedTools:` is rejected (agent skipped); `mode: plan` or `ask` gives CLI-enforced read-only runs. Needs `cursor-agent` on PATH and auth. |
 
-Agent definitions live in [`agents/`](agents/) (user scope, always loaded): `scout`, `web-scout`, `figma-scout`, `planner`, `worker`, `reviewer`, plus the workflow agents `general`, `judge`, `adversarial-reviewer`, `verifier` on pi; `cursor-worker`, `cross-reviewer` on cursor — see the table in [`agents/README.md`](agents/README.md). Project-scope agents in `.pi/agents/` are opt-in via `agentScope: "project"` or `"both"`; interactive sessions ask for confirmation the first time one is invoked (disable with `confirmProjectAgents: false`). User-scope agents discovered at startup are listed in the tool description so the model knows what's available; new agent files need a session restart to be advertised.
+Agent definitions live in [`agents/`](agents/) (user scope, always loaded): `scout`, `web-scout`, `figma-scout`, `planner`, `worker`, `reviewer`, plus the ultraspawn agents `general`, `judge`, `adversarial-reviewer`, `verifier` on pi; `cursor-worker`, `cross-reviewer` on cursor — see the table in [`agents/README.md`](agents/README.md). Project-scope agents in `.pi/agents/` are opt-in via `agentScope: "project"` or `"both"`; interactive sessions ask for confirmation the first time one is invoked (disable with `confirmProjectAgents: false`). User-scope agents discovered at startup are listed in the tool description so the model knows what's available; new agent files need a session restart to be advertised.
 
-Workflow prompt templates that drive chain mode live in [`prompts/`](prompts/) and surface as `/implement`, `/scout-and-plan`, `/implement-and-review`.
+Prompt templates that drive chain mode live in [`prompts/`](prompts/) and surface as `/implement`, `/scout-and-plan`, `/implement-and-review`.
 
-Workflow mode runs a JS orchestration script: `spawn({workflow: "<name>", args})` for a saved script, or `spawn({script, args})` for an inline one. The script runs in a `node:vm` context on a worker thread (for responsiveness and killability, not as a security boundary: an approved script is trusted code with your user's permissions) and drives pi-runner child agents through `agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, and `applyPatch`. Children can't spawn agents themselves; they return follow-up requests that the script queues. `agent()` supports JSON Schema output with retries, timeouts, and `isolation: "worktree"` (a throwaway git worktree whose changes come back as a patch). The parent model sees only the script's result. Progress renders inside the tool call, and every child's cost counts toward the `(sa $…)` spend. Approval is the trust gate: each interactive run asks Run / View script / Auto-approve for this project and run / Cancel (listing any project agents in scope and the user agents they override), and auto-approvals persist per project in `~/.pi/agent/workflow-approvals.json`. Without a UI, a run proceeds only in an auto-approved project or for a user-scope saved workflow with `agentScope: "user"`; everything else is refused. Saved scripts live in [`workflows/`](workflows/README.md) (linked to `~/.pi/agent/workflows/`) or a project's `.pi/workflows/` (opt-in via `agentScope`, like project agents). `review` is a verified multi-angle review, run via `/review [base-branch]`. The model learns the API from the [`workflow` skill](skills/workflow/SKILL.md).
+Ultraspawn mode runs a JS orchestration script: `spawn({ultraspawn: "<name>", args})` for a saved script, or `spawn({script, args})` for an inline one. The script runs in a `node:vm` context on a worker thread (for responsiveness and killability, not as a security boundary: an approved script is trusted code with your user's permissions) and drives pi-runner child agents through `agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, and `applyPatch`. Children can't spawn agents themselves; they return follow-up requests that the script queues. `agent()` supports JSON Schema output with retries, timeouts, and `isolation: "worktree"` (a throwaway git worktree whose changes come back as a patch). The parent model sees only the script's result. Progress renders inside the tool call, and every child's cost counts toward the `(sa $…)` spend. Approval is the trust gate: each interactive run asks Run / View script / Auto-approve for this project and run / Cancel (listing any project agents in scope and the user agents they override), and auto-approvals persist per project in `~/.pi/agent/ultraspawn-approvals.json`. Without a UI, a run proceeds only in an auto-approved project or for a user-scope saved ultraspawn with `agentScope: "user"`; everything else is refused. Saved scripts live in [`ultraspawns/`](ultraspawns/README.md) (linked to `~/.pi/agent/ultraspawns/`) or a project's `.pi/ultraspawns/` (opt-in via `agentScope`, like project agents). `review` is a verified multi-angle review, run via `/ultrareview [base-branch]`. The model learns the API from the [`ultraspawn` skill](skills/ultraspawn/SKILL.md).
 
 Full runner details: [`extensions/subagent/README.md`](extensions/subagent/README.md) and [`agents/README.md`](agents/README.md).
 

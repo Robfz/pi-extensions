@@ -1,4 +1,4 @@
-/** JSON Schema validation of workflow agent output (TypeBox `Value`, which accepts plain JSON Schema objects). */
+/** JSON Schema validation of ultraspawn agent output (TypeBox `Value`, which accepts plain JSON Schema objects). */
 
 import { Value } from "typebox/value";
 import { errorMessage } from "./types.ts";
@@ -84,7 +84,7 @@ export function validateAgainst(schema: object, value: unknown): string[] {
 	}
 }
 
-/** Output-format paragraph placed inside <workflow-instructions>. */
+/** Output-format paragraph placed inside <ultraspawn-instructions>. */
 export function schemaInstruction(schema: object): string {
 	return `Your final response must contain exactly one fenced \`\`\`json block whose content is a JSON value validating against this JSON Schema (no prose required outside the block):
 ${JSON.stringify(schema)}`;

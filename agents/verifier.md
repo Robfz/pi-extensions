@@ -1,6 +1,6 @@
 ---
 name: verifier
-description: Verifies a single code review finding empirically in a throwaway git worktree — writes repro tests, runs commands and test suites, installs deps if needed; never commits. Used by review workflows with isolation "worktree".
+description: Verifies a single code review finding empirically in a throwaway git worktree — writes repro tests, runs commands and test suites, installs deps if needed; never commits. Used by the review ultraspawn with isolation "worktree".
 excludedTools: spawn, subagent
 model: claude-opus-5-5
 ---

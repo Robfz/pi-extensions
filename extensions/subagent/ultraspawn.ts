@@ -1,5 +1,5 @@
 /**
- * Workflow runtime host: runs a workflow script in a worker thread (see workflow-worker-source.ts)
+ * Ultraspawn runtime host: runs an ultraspawn script in a worker thread (see ultraspawn-worker-source.ts)
  * and serves its `agent()` / `applyPatch()` calls by running pi child agents under a concurrency cap,
  * with schema validation (schema.ts), per-call timeouts, and git worktree isolation (worktree.ts).
  * Does not import pi packages at runtime, so tests can load it with a fake runner and fake git ops.
@@ -13,8 +13,8 @@ import type { AgentConfig } from "./agents.ts";
 import type { RunSpec } from "./runner.ts";
 import {
 	type AgentScope,
-	DEFAULT_WORKFLOW_AGENT,
-	DEFAULT_WORKFLOW_CONCURRENCY,
+	DEFAULT_ULTRASPAWN_AGENT,
+	DEFAULT_ULTRASPAWN_CONCURRENCY,
 	emptyUsage,
 	errorMessage,
 	getFinalOutput,
@@ -23,16 +23,16 @@ import {
 	type SingleResult,
 	type UsageStats,
 	type WorkerToHost,
-	WORKFLOW_CHILD_EXCLUDED_TOOLS,
-	type WorkflowAgentCall,
-	type WorkflowAgentResult,
-	type WorkflowAgentRow,
-	type WorkflowDetails,
-	type WorkflowFailReason,
-	type WorkflowFollowUp,
-	type WorkflowStatus,
+	ULTRASPAWN_CHILD_EXCLUDED_TOOLS,
+	type UltraspawnAgentCall,
+	type UltraspawnAgentResult,
+	type UltraspawnAgentRow,
+	type UltraspawnDetails,
+	type UltraspawnFailReason,
+	type UltraspawnFollowUp,
+	type UltraspawnStatus,
 } from "./types.ts";
-import { WORKFLOW_WORKER_SOURCE } from "./workflow-worker-source.ts";
+import { ULTRASPAWN_WORKER_SOURCE } from "./ultraspawn-worker-source.ts";
 import {
 	extractJson,
 	MAX_SCHEMA_RETRIES,
@@ -52,21 +52,21 @@ export type WorktreeOps = Pick<
 	"getRepoRoot" | "createIsolatedWorktree" | "captureWorktreePatch" | "removeWorktree" | "sweepRunDir"
 >;
 
-export interface WorkflowRunOptions {
+export interface UltraspawnRunOptions {
 	runId: string;
 	name: string;
-	source: WorkflowDetails["source"];
+	source: UltraspawnDetails["source"];
 	script: string;
 	args: unknown;
 	cwd: string;
 	agents: AgentConfig[];
 	agentScope: AgentScope;
 	projectAgentsDir: string | null;
-	/** Max concurrent child agents; default DEFAULT_WORKFLOW_CONCURRENCY. */
+	/** Max concurrent child agents; default DEFAULT_ULTRASPAWN_CONCURRENCY. */
 	concurrency?: number;
 	signal?: AbortSignal;
 	runner: ChildRunner;
-	onProgress?: (details: WorkflowDetails) => void;
+	onProgress?: (details: UltraspawnDetails) => void;
 	piInvocation?: RunSpec["piInvocation"];
 	/** Overrides for the worktree git operations (default: worktree.ts). */
 	worktrees?: Partial<WorktreeOps>;
@@ -74,8 +74,8 @@ export interface WorkflowRunOptions {
 	applyPatch?: (patch: string) => Promise<ApplyPatchResult>;
 }
 
-export interface WorkflowRunOutcome {
-	details: WorkflowDetails;
+export interface UltraspawnRunOutcome {
+	details: UltraspawnDetails;
 	/** Script return value; undefined unless status is "done". */
 	result?: unknown;
 }
@@ -86,7 +86,7 @@ const PROGRESS_INTERVAL_MS = 250;
 const WORKER_HEAP_MB = 1024;
 
 /** Model-facing text for a script's return value; never throws. */
-export function formatWorkflowResult(result: unknown): string {
+export function formatUltraspawnResult(result: unknown): string {
 	if (typeof result === "string") return result;
 	if (result === undefined) return "(no return value)";
 	try {
@@ -103,7 +103,7 @@ export function formatWorkflowResult(result: unknown): string {
 const FOLLOWUPS_FENCE = /```followups[ \t]*\r?\n([\s\S]*?)\r?\n```\s*$/;
 
 /** Splits a trailing ```followups fence off an agent's output; malformed fences leave the output intact. */
-export function parseFollowUps(output: string, knownAgents: string[]): { output: string; followUps: WorkflowFollowUp[] } {
+export function parseFollowUps(output: string, knownAgents: string[]): { output: string; followUps: UltraspawnFollowUp[] } {
 	const match = FOLLOWUPS_FENCE.exec(output);
 	if (!match) return { output, followUps: [] };
 	let parsed: unknown;
@@ -114,7 +114,7 @@ export function parseFollowUps(output: string, knownAgents: string[]): { output:
 	}
 	if (!Array.isArray(parsed)) return { output, followUps: [] };
 	const known = new Set(knownAgents);
-	const followUps: WorkflowFollowUp[] = [];
+	const followUps: UltraspawnFollowUp[] = [];
 	for (const item of parsed) {
 		if (!item || typeof item !== "object") continue;
 		const { task, agent } = item as Record<string, unknown>;
@@ -124,12 +124,12 @@ export function parseFollowUps(output: string, knownAgents: string[]): { output:
 	return { output: output.slice(0, match.index).trimEnd(), followUps };
 }
 
-export function composeWorkflowTask(prompt: string, agentNames: string[], schema?: object): string {
+export function composeUltraspawnTask(prompt: string, agentNames: string[], schema?: object): string {
 	return `${prompt}
 
-<workflow-instructions>
-${schema ? `${schemaInstruction(schema)}\n\n` : ""}You are one step of an automated workflow and cannot spawn agents yourself. If more delegated work is needed, end your response with a fenced code block tagged \`followups\` containing a JSON array of {"task": string, "agent": string} objects (agent must be one of: ${agentNames.join(", ")}). Omit the block when nothing is needed.
-</workflow-instructions>`;
+<ultraspawn-instructions>
+${schema ? `${schemaInstruction(schema)}\n\n` : ""}You are one step of an automated multi-agent run and cannot spawn agents yourself. If more delegated work is needed, end your response with a fenced code block tagged \`followups\` containing a JSON array of {"task": string, "agent": string} objects (agent must be one of: ${agentNames.join(", ")}). Omit the block when nothing is needed.
+</ultraspawn-instructions>`;
 }
 
 /** FIFO counting semaphore; waiters resolve `false` once the signal aborts. */
@@ -177,14 +177,14 @@ function addUsage(into: UsageStats, from: UsageStats): void {
 /** setTimeout's ceiling; larger delays would fire immediately. */
 const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 
-type CallIdentity = Pick<WorkflowAgentResult, "agent" | "label" | "phase">;
+type CallIdentity = Pick<UltraspawnAgentResult, "agent" | "label" | "phase">;
 
 function failedResult(
 	who: CallIdentity,
-	reason: WorkflowFailReason,
+	reason: UltraspawnFailReason,
 	error: string,
-	extra?: Partial<WorkflowAgentResult>,
-): WorkflowAgentResult {
+	extra?: Partial<UltraspawnAgentResult>,
+): UltraspawnAgentResult {
 	return {
 		ok: false,
 		...who,
@@ -200,11 +200,11 @@ function failedResult(
 }
 
 function errorLocation(stack: string | undefined): string | undefined {
-	return stack?.match(/workflow\.js:\d+(?::\d+)?/)?.[0];
+	return stack?.match(/ultraspawn\.js:\d+(?::\d+)?/)?.[0];
 }
 
-export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcome> {
-	const concurrency = Math.max(1, Math.floor(opts.concurrency ?? DEFAULT_WORKFLOW_CONCURRENCY));
+export function runUltraspawn(opts: UltraspawnRunOptions): Promise<UltraspawnRunOutcome> {
+	const concurrency = Math.max(1, Math.floor(opts.concurrency ?? DEFAULT_ULTRASPAWN_CONCURRENCY));
 	const piAgents = opts.agents.filter((a) => a.runner === "pi");
 	const piAgentNames = piAgents.map((a) => a.name);
 	const wtOps: WorktreeOps = {
@@ -216,9 +216,9 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 	};
 	/** Parent of the run's worktrees, created on first use. */
 	let runDir: string | undefined;
-	const ensureRunDir = () => (runDir ??= fs.mkdtempSync(path.join(os.tmpdir(), "pi-workflow-")));
+	const ensureRunDir = () => (runDir ??= fs.mkdtempSync(path.join(os.tmpdir(), "pi-ultraspawn-")));
 	let repoRootPromise: Promise<string | null> | undefined;
-	/** Git toplevel of `cwd`, resolved on first use so workflows without isolation/applyPatch never run git. */
+	/** Git toplevel of `cwd`, resolved on first use so ultraspawns without isolation/applyPatch never run git. */
 	const getRepoRoot = () => (repoRootPromise ??= wtOps.getRepoRoot(opts.cwd).catch(() => null));
 	/** Serializes git operations that touch the user's checkout (worktree add/remove, stash create, apply). */
 	let gitQueue: Promise<unknown> = Promise.resolve();
@@ -235,8 +235,8 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 			return worktree.applyPatchToCheckout(root, patch);
 		});
 
-	const details: WorkflowDetails = {
-		mode: "workflow",
+	const details: UltraspawnDetails = {
+		mode: "ultraspawn",
 		agentScope: opts.agentScope,
 		projectAgentsDir: opts.projectAgentsDir,
 		runId: opts.runId,
@@ -259,14 +259,14 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 	let finished = false;
 	let scriptResult: unknown;
 	let worker: Worker | undefined;
-	let resolveOutcome!: (o: WorkflowRunOutcome) => void;
-	const outcome = new Promise<WorkflowRunOutcome>((r) => {
+	let resolveOutcome!: (o: UltraspawnRunOutcome) => void;
+	const outcome = new Promise<UltraspawnRunOutcome>((r) => {
 		resolveOutcome = r;
 	});
 
 	// ── progress ──
 	let emitTimer: NodeJS.Timeout | undefined;
-	const snapshot = (): WorkflowDetails => ({
+	const snapshot = (): UltraspawnDetails => ({
 		...details,
 		phases: details.phases.map((p) => ({ ...p })),
 		agents: details.agents.map((a) => ({ ...a })),
@@ -302,7 +302,7 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 
 	// ── agent calls ──
 	/** Checks a call before it takes a slot; returns a failure result when it cannot run. */
-	const precheck = (call: WorkflowAgentCall, who: CallIdentity): WorkflowAgentResult | undefined => {
+	const precheck = (call: UltraspawnAgentCall, who: CallIdentity): UltraspawnAgentResult | undefined => {
 		const agentName = who.agent;
 		if (!call.prompt.trim()) return failedResult(who, "error", "agent(): prompt must be a non-empty string");
 		const agent = opts.agents.find((a) => a.name === agentName);
@@ -310,7 +310,7 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 			return failedResult(who, "unknown-agent", `Unknown agent "${agentName}". Available: ${piAgentNames.join(", ") || "none"}`);
 		}
 		if (agent.runner !== "pi") {
-			return failedResult(who, "unknown-agent", `Agent "${agentName}" runs on ${agent.runner}; workflows run pi agents only`);
+			return failedResult(who, "unknown-agent", `Agent "${agentName}" runs on ${agent.runner}; ultraspawns run pi agents only`);
 		}
 		const { schema, timeout, isolation } = call;
 		if (schema !== undefined) {
@@ -330,7 +330,7 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 	};
 
 	/** Runs one child process for `row`, recording its live and final usage in `details.results`. */
-	const runAttempt = async (row: WorkflowAgentRow, spec: { task: string; cwd: string; signal: AbortSignal }): Promise<SingleResult> => {
+	const runAttempt = async (row: UltraspawnAgentRow, spec: { task: string; cwd: string; signal: AbortSignal }): Promise<SingleResult> => {
 		const baseCost = row.cost;
 		row.attempts++;
 		const idx =
@@ -353,7 +353,7 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 			agentName: row.agent,
 			task: spec.task,
 			signal: spec.signal,
-			extraExcludedTools: WORKFLOW_CHILD_EXCLUDED_TOOLS,
+			extraExcludedTools: ULTRASPAWN_CHILD_EXCLUDED_TOOLS,
 			piInvocation: opts.piInvocation,
 			onUpdate: (partial) => {
 				record(partial);
@@ -369,11 +369,11 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 	 * 1 + MAX_SCHEMA_RETRIES child attempts, then the worktree patch.
 	 * `onSpawn` fires before the first child process starts.
 	 */
-	const runCall = async (call: WorkflowAgentCall, row: WorkflowAgentRow, onSpawn: () => void): Promise<WorkflowAgentResult> => {
+	const runCall = async (call: UltraspawnAgentCall, row: UltraspawnAgentRow, onSpawn: () => void): Promise<UltraspawnAgentResult> => {
 		const startedAt = Date.now();
 		const usage = emptyUsage();
 		const base: CallIdentity = { agent: row.agent, label: call.label, phase: call.phase };
-		const fail = (reason: WorkflowFailReason, error: string, extra?: Partial<WorkflowAgentResult>): WorkflowAgentResult =>
+		const fail = (reason: UltraspawnFailReason, error: string, extra?: Partial<UltraspawnAgentResult>): UltraspawnAgentResult =>
 			failedResult(base, reason, error, { attempts: row.attempts, usage, durationMs: Date.now() - startedAt, ...extra });
 
 		const ctrl = new AbortController();
@@ -392,7 +392,7 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 						Math.min(call.timeout, MAX_TIMEOUT_MS),
 					)
 				: undefined;
-		const stopped = (r?: SingleResult): { reason: WorkflowFailReason; error: string } =>
+		const stopped = (r?: SingleResult): { reason: UltraspawnFailReason; error: string } =>
 			timedOut
 				? { reason: "timeout", error: `Timed out after ${call.timeout} ms` }
 				: { reason: "aborted", error: r ? getResultOutput(r) : "Aborted" };
@@ -420,9 +420,9 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 			}
 
 			const schema = call.schema;
-			const firstTask = composeWorkflowTask(call.prompt, piAgentNames, schema);
+			const firstTask = composeUltraspawnTask(call.prompt, piAgentNames, schema);
 			let task = firstTask;
-			let result: WorkflowAgentResult | undefined;
+			let result: UltraspawnAgentResult | undefined;
 			for (let attempt = 0; !result; attempt++) {
 				if (ctrl.signal.aborted) {
 					result = fail(stopped().reason, stopped().error);
@@ -475,13 +475,13 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 		}
 	};
 
-	const handleAgent = async (id: number, raw: WorkflowAgentCall): Promise<void> => {
-		const call: WorkflowAgentCall = { ...raw, prompt: typeof raw?.prompt === "string" ? raw.prompt : "" };
-		const agentName = typeof call.agent === "string" && call.agent ? call.agent : DEFAULT_WORKFLOW_AGENT;
+	const handleAgent = async (id: number, raw: UltraspawnAgentCall): Promise<void> => {
+		const call: UltraspawnAgentCall = { ...raw, prompt: typeof raw?.prompt === "string" ? raw.prompt : "" };
+		const agentName = typeof call.agent === "string" && call.agent ? call.agent : DEFAULT_ULTRASPAWN_AGENT;
 		const phaseIndex = typeof call.phaseId === "number" ? phaseIndexById.get(call.phaseId) : undefined;
 		const phase = phaseIndex !== undefined ? details.phases[phaseIndex] : undefined;
 		const who: CallIdentity = { agent: agentName, label: call.label, phase: call.phase };
-		const row: WorkflowAgentRow = {
+		const row: UltraspawnAgentRow = {
 			id: details.agents.length + 1,
 			agent: agentName,
 			label: typeof call.label === "string" ? call.label : undefined,
@@ -494,7 +494,7 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 		};
 		details.agents.push(row);
 
-		const settle = (value: WorkflowAgentResult) => {
+		const settle = (value: UltraspawnAgentResult) => {
 			row.status = value.ok ? "done" : "failed";
 			row.reason = value.reason;
 			row.error = value.error?.slice(0, 500);
@@ -515,10 +515,10 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 
 		emitNow();
 		if (!(await sem.acquire(runAbort.signal))) {
-			settle(failedResult(who, "aborted", "Workflow aborted before the agent started"));
+			settle(failedResult(who, "aborted", "Ultraspawn aborted before the agent started"));
 			return;
 		}
-		let value: WorkflowAgentResult;
+		let value: UltraspawnAgentResult;
 		try {
 			row.status = "running";
 			row.startedAt = Date.now();
@@ -593,14 +593,14 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 				try {
 					scriptResult = msg.json === undefined ? undefined : JSON.parse(msg.json);
 				} catch (err) {
-					void finish("failed", `workflow return value could not be read: ${errorMessage(err)}`);
+					void finish("failed", `ultraspawn return value could not be read: ${errorMessage(err)}`);
 					return;
 				}
 				void finish("done");
 				return;
 			case "error": {
 				const loc = errorLocation(msg.stack);
-				const message = loc && !msg.message.includes("workflow.js") ? `${msg.message} (at ${loc})` : msg.message;
+				const message = loc && !msg.message.includes("ultraspawn.js") ? `${msg.message} (at ${loc})` : msg.message;
 				void finish("failed", message);
 				return;
 			}
@@ -608,7 +608,7 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 	};
 
 	// ── lifecycle ──
-	const finish = async (status: Exclude<WorkflowStatus, "canceled" | "running">, error?: string) => {
+	const finish = async (status: Exclude<UltraspawnStatus, "canceled" | "running">, error?: string) => {
 		if (finished) return;
 		finished = true;
 		clearTimeout(emitTimer);
@@ -643,16 +643,16 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 		}
 	};
 
-	const onExternalAbort = () => void finish("aborted", "Workflow aborted");
+	const onExternalAbort = () => void finish("aborted", "Ultraspawn aborted");
 
 	if (opts.signal?.aborted) {
-		void finish("aborted", "Workflow aborted");
+		void finish("aborted", "Ultraspawn aborted");
 		return outcome;
 	}
 	opts.signal?.addEventListener("abort", onExternalAbort, { once: true });
 
 	try {
-		worker = new Worker(WORKFLOW_WORKER_SOURCE, {
+		worker = new Worker(ULTRASPAWN_WORKER_SOURCE, {
 			eval: true,
 			workerData: { script: opts.script, args: opts.args ?? {} },
 			resourceLimits: { maxOldGenerationSizeMb: WORKER_HEAP_MB },
@@ -660,12 +660,12 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 			execArgv: [],
 		});
 	} catch (err) {
-		void finish("failed", `Could not start workflow worker: ${errorMessage(err)}`);
+		void finish("failed", `Could not start ultraspawn worker: ${errorMessage(err)}`);
 		return outcome;
 	}
 	worker.on("message", onMessage);
 	worker.on("error", (err) => void finish("failed", errorMessage(err)));
-	worker.on("exit", (code) => void finish("failed", `workflow worker exited (code ${code})`));
+	worker.on("exit", (code) => void finish("failed", `ultraspawn worker exited (code ${code})`));
 	emitNow();
 	return outcome;
 }

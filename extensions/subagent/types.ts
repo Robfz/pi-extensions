@@ -47,18 +47,18 @@ export interface LegacyDetails {
 	results: SingleResult[];
 }
 
-export type SubagentDetails = LegacyDetails | WorkflowDetails;
+export type SubagentDetails = LegacyDetails | UltraspawnDetails;
 
-/** Default agent for workflow `agent()` calls that name none. */
-export const DEFAULT_WORKFLOW_AGENT = "general";
-export const DEFAULT_WORKFLOW_CONCURRENCY = 16;
-/** Forced on every workflow child: children never spawn agents themselves. */
-export const WORKFLOW_CHILD_EXCLUDED_TOOLS = [TOOL_NAME, "subagent"];
+/** Default agent for ultraspawn `agent()` calls that name none. */
+export const DEFAULT_ULTRASPAWN_AGENT = "general";
+export const DEFAULT_ULTRASPAWN_CONCURRENCY = 16;
+/** Forced on every ultraspawn child: children never spawn agents themselves. */
+export const ULTRASPAWN_CHILD_EXCLUDED_TOOLS = [TOOL_NAME, "subagent"];
 
 /** `agent()` call parameters sent from the worker to the host. */
-export interface WorkflowAgentCall {
+export interface UltraspawnAgentCall {
 	prompt: string;
-	/** Defaults to DEFAULT_WORKFLOW_AGENT. */
+	/** Defaults to DEFAULT_ULTRASPAWN_AGENT. */
 	agent?: string;
 	/** JSON Schema the agent's output must validate against. */
 	schema?: Record<string, unknown>;
@@ -72,15 +72,15 @@ export interface WorkflowAgentCall {
 	phaseId?: number;
 }
 
-export type WorkflowFailReason = "error" | "timeout" | "aborted" | "schema" | "unknown-agent" | "isolation";
+export type UltraspawnFailReason = "error" | "timeout" | "aborted" | "schema" | "unknown-agent" | "isolation";
 
-export interface WorkflowFollowUp {
+export interface UltraspawnFollowUp {
 	task: string;
 	agent: string;
 }
 
 /** Value an `agent()` call resolves to inside the script; structured-clone safe. */
-export interface WorkflowAgentResult {
+export interface UltraspawnAgentResult {
 	ok: boolean;
 	agent: string;
 	label?: string;
@@ -90,8 +90,8 @@ export interface WorkflowAgentResult {
 	/** Validated JSON when a schema was given. */
 	data?: unknown;
 	error?: string;
-	reason?: WorkflowFailReason;
-	followUps: WorkflowFollowUp[];
+	reason?: UltraspawnFailReason;
+	followUps: UltraspawnFollowUp[];
 	/** Changes made in an isolated worktree. */
 	patch?: string;
 	/** Child processes run for this call (1 + schema retries). */
@@ -103,15 +103,15 @@ export interface WorkflowAgentResult {
 }
 
 /** One per `agent()` call, for rendering. */
-export interface WorkflowAgentRow {
+export interface UltraspawnAgentRow {
 	id: number;
 	agent: string;
 	label?: string;
 	phase?: string;
-	/** Index into WorkflowDetails.phases of the phase this call ran in. */
+	/** Index into UltraspawnDetails.phases of the phase this call ran in. */
 	phaseIndex?: number;
 	status: "queued" | "running" | "done" | "failed";
-	reason?: WorkflowFailReason;
+	reason?: UltraspawnFailReason;
 	error?: string;
 	startedAt?: number;
 	endedAt?: number;
@@ -120,7 +120,7 @@ export interface WorkflowAgentRow {
 	isolated?: boolean;
 }
 
-export interface WorkflowPhase {
+export interface UltraspawnPhase {
 	name: string;
 	status: "running" | "done";
 	startedAt: number;
@@ -131,21 +131,21 @@ export interface WorkflowPhase {
 	failed: number;
 }
 
-export type WorkflowStatus = "canceled" | "running" | "done" | "failed" | "aborted";
+export type UltraspawnStatus = "canceled" | "running" | "done" | "failed" | "aborted";
 
-export interface WorkflowDetails {
-	mode: "workflow";
+export interface UltraspawnDetails {
+	mode: "ultraspawn";
 	agentScope: AgentScope;
 	projectAgentsDir: string | null;
 	runId: string;
-	/** Saved workflow name, or "inline". */
+	/** Saved ultraspawn name, or "inline". */
 	name: string;
 	source: "inline" | "user" | "project";
 	script: string;
 	args: unknown;
-	status: WorkflowStatus;
-	phases: WorkflowPhase[];
-	agents: WorkflowAgentRow[];
+	status: UltraspawnStatus;
+	phases: UltraspawnPhase[];
+	agents: UltraspawnAgentRow[];
 	/** `agent()` calls that started running. */
 	spawned: number;
 	logs: string[];
@@ -163,7 +163,7 @@ export type HostToWorker =
 
 /** Worker → host messages. */
 export type WorkerToHost =
-	| { type: "call"; id: number; method: "agent"; params: WorkflowAgentCall }
+	| { type: "call"; id: number; method: "agent"; params: UltraspawnAgentCall }
 	| { type: "call"; id: number; method: "applyPatch"; params: { patch: string } }
 	| { type: "log"; text: string }
 	| { type: "phase"; id: number; name: string; event: "start" | "end" }

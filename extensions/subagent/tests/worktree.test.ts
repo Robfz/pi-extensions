@@ -1,4 +1,4 @@
-/** worktree.ts against real git repos in temp dirs, plus runWorkflow end-to-end with isolation. Skipped without git. */
+/** worktree.ts against real git repos in temp dirs, plus runUltraspawn end-to-end with isolation. Skipped without git. */
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -6,8 +6,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, before, describe, test } from "node:test";
-import type { WorkflowAgentResult } from "../types.ts";
-import { runWorkflow, type WorkflowRunOptions } from "../workflow.ts";
+import type { UltraspawnAgentResult } from "../types.ts";
+import { runUltraspawn, type UltraspawnRunOptions } from "../ultraspawn.ts";
 import {
 	applyPatchToCheckout,
 	captureWorktreePatch,
@@ -179,12 +179,12 @@ describe("isolated worktrees", { skip }, () => {
 	});
 });
 
-describe("runWorkflow with isolation: worktree", { skip }, () => {
+describe("runUltraspawn with isolation: worktree", { skip }, () => {
 	/** Starts a run; `runDir()` is the run dir the runtime created (known after the first worktree). */
-	function opts(repo: string, plan: FakePlan | FakeReply, extra: Partial<WorkflowRunOptions> = {}) {
+	function opts(repo: string, plan: FakePlan | FakeReply, extra: Partial<UltraspawnRunOptions> = {}) {
 		const fake = makeFakeRunner(plan);
 		let seenRunDir: string | undefined;
-		const outcome = runWorkflow({
+		const outcome = runUltraspawn({
 			runId: nextRunId(),
 			name: "inline",
 			source: "inline",
@@ -237,12 +237,12 @@ describe("runWorkflow with isolation: worktree", { skip }, () => {
 		const { fake, outcome, runDir } = opts(cwd, plan, { script });
 		const { details, result } = await outcome;
 		assert.equal(details.status, "done", details.error);
-		const { r, check, applied } = result as { r: WorkflowAgentResult; check: string; applied: unknown };
+		const { r, check, applied } = result as { r: UltraspawnAgentResult; check: string; applied: unknown };
 		assert.equal(r.ok, true);
 		assert.match(r.patch ?? "", /sub\/made\.txt/);
 		assert.equal(check, "worktree gone");
 		assert.deepEqual(applied, { ok: true });
-		assert.ok(path.basename(runDir()).startsWith("pi-workflow-"));
+		assert.ok(path.basename(runDir()).startsWith("pi-ultraspawn-"));
 		assert.ok(isolatedCwd.startsWith(runDir()), `child cwd ${isolatedCwd} inside ${runDir()}`);
 		assert.ok(isolatedCwd.endsWith(`${path.sep}sub`), "child cwd mirrors the subdirectory");
 		assert.equal(fake.specs[1].defaultCwd, cwd, "non-isolated agents run in cwd");

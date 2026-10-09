@@ -12,15 +12,15 @@
  *   - Single: { agent: "name", task: "..." }
  *   - Parallel: { tasks: [{ agent: "name", task: "..." }, ...] }
  *   - Chain: { chain: [{ agent: "name", task: "... {previous} ..." }, ...] }
- *   - Workflow: { workflow: "name" } or { script: "..." }, plus args?: {...}, runs an orchestration script
- *     (workflow.ts; saved scripts are found by saved-workflows.ts)
+ *   - Ultraspawn: { ultraspawn: "name" } or { script: "..." }, plus args?: {...}, runs an orchestration script
+ *     (ultraspawn.ts; saved scripts are found by saved-ultraspawns.ts)
  *
  * Uses JSON mode to capture structured output from subagents.
  *
  * Publishes cumulative subagent spend on `pi.events` (`subagent:spend`) for the status-bar extension.
  *
  * This file holds tool registration, spend tracking, approval, and mode dispatch; the child-process
- * runner lives in runner.ts, the workflow runtime in workflow.ts, TUI rendering in render.ts,
+ * runner lives in runner.ts, the ultraspawn runtime in ultraspawn.ts, TUI rendering in render.ts,
  * shared types/helpers in types.ts.
  */
 
@@ -31,7 +31,7 @@ import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
 import {
 	approvalsPath,
-	decideWorkflowGate,
+	decideUltraspawnGate,
 	isAutoApproved,
 	type ProjectAgentRef,
 	projectKey,
@@ -39,7 +39,7 @@ import {
 } from "./approvals.ts";
 import { renderCall, renderResult } from "./render.ts";
 import { mapWithConcurrencyLimit, runSingleAgent } from "./runner.ts";
-import { discoverWorkflows, resolveWorkflow } from "./saved-workflows.ts";
+import { discoverUltraspawns, resolveUltraspawn } from "./saved-ultraspawns.ts";
 import {
 	emptyUsage,
 	errorMessage,
@@ -55,9 +55,9 @@ import {
 	subagentCost,
 	TOOL_NAME,
 	truncateOutput,
-	type WorkflowDetails,
+	type UltraspawnDetails,
 } from "./types.ts";
-import { formatWorkflowResult, runWorkflow } from "./workflow.ts";
+import { formatUltraspawnResult, runUltraspawn } from "./ultraspawn.ts";
 
 export type { SubagentSpend } from "./types.ts";
 
@@ -95,24 +95,24 @@ const SubagentParams = Type.Object({
 	script: Type.Optional(
 		Type.String({
 			description:
-				"Inline workflow script: body of an async function using agent/parallel/pipeline/phase/log/args/applyPatch; must return plain data. See the `workflow` skill.",
+				"Inline ultraspawn script: body of an async function using agent/parallel/pipeline/phase/log/args/applyPatch; must return plain data. See the `ultraspawn` skill.",
 		}),
 	),
-	workflow: Type.Optional(Type.String({ description: "Name of a saved workflow to run (workflow mode)" })),
+	ultraspawn: Type.Optional(Type.String({ description: "Name of a saved ultraspawn to run (ultraspawn mode)" })),
 	args: Type.Optional(
-		Type.Record(Type.String(), Type.Any(), { description: "Arguments for the workflow script, available as `args`" }),
+		Type.Record(Type.String(), Type.Any(), { description: "Arguments for the ultraspawn script, available as `args`" }),
 	),
 });
 
-type WorkflowApproval = { ok: true } | { ok: false; text: string; isError: boolean };
+type UltraspawnApproval = { ok: true } | { ok: false; text: string; isError: boolean };
 
-/** Applies decideWorkflowGate: may notify, show the run/view/auto-approve dialog, or refuse. */
-async function approveWorkflow(
+/** Applies decideUltraspawnGate: may notify, show the run/view/auto-approve dialog, or refuse. */
+async function approveUltraspawn(
 	ctx: ExtensionContext,
 	opts: {
 		name: string;
-		source: WorkflowDetails["source"];
-		/** Saved workflows only. */
+		source: UltraspawnDetails["source"];
+		/** Saved ultraspawns only. */
 		filePath?: string;
 		script: string;
 		agentCount: number;
@@ -120,7 +120,7 @@ async function approveWorkflow(
 		agents: AgentConfig[];
 		projectAgentsDir: string | null;
 	},
-): Promise<WorkflowApproval> {
+): Promise<UltraspawnApproval> {
 	const key = projectKey(ctx.cwd);
 	const projectAgents: ProjectAgentRef[] = [];
 	if (opts.agentScope !== "user") {
@@ -129,7 +129,7 @@ async function approveWorkflow(
 			if (a.source === "project") projectAgents.push({ name: a.name, overridesUser: userNames.has(a.name) });
 		}
 	}
-	const decision = decideWorkflowGate({
+	const decision = decideUltraspawnGate({
 		name: opts.name,
 		hasUI: ctx.hasUI,
 		autoApproved: isAutoApproved(key),
@@ -154,7 +154,7 @@ async function approveWorkflow(
 	const lines = opts.script.split("\n").length;
 	const from = opts.filePath ? ` from ${opts.filePath}` : "";
 	const title =
-		`Run workflow "${opts.name}"${from}? (${lines} lines, ${opts.agentCount} agents available, scope ${opts.agentScope})` +
+		`Run ultraspawn "${opts.name}"${from}? (${lines} lines, ${opts.agentCount} agents available, scope ${opts.agentScope})` +
 		(decision.projectAgentsNote ? `\n${decision.projectAgentsNote}\nOnly continue for trusted repositories.` : "");
 	const RUN = "Run";
 	const VIEW = "View script";
@@ -164,29 +164,29 @@ async function approveWorkflow(
 		const choice = await ctx.ui.select(title, [RUN, VIEW, AUTO, CANCEL]);
 		if (choice === RUN) return { ok: true };
 		if (choice === VIEW) {
-			await ctx.ui.editor(`Workflow "${opts.name}" — view only, edits are ignored`, opts.script);
+			await ctx.ui.editor(`Ultraspawn "${opts.name}" — view only, edits are ignored`, opts.script);
 			continue;
 		}
 		if (choice === AUTO) {
 			await setAutoApproved(key);
 			return { ok: true };
 		}
-		return { ok: false, isError: false, text: "Canceled: workflow not approved." };
+		return { ok: false, isError: false, text: "Canceled: ultraspawn not approved." };
 	}
 }
 
-function workflowProgressText(d: WorkflowDetails): string {
+function ultraspawnProgressText(d: UltraspawnDetails): string {
 	const running = d.agents.filter((a) => a.status === "running").length;
 	const done = d.agents.filter((a) => a.status === "done").length;
 	const failed = d.agents.filter((a) => a.status === "failed").length;
-	return `Workflow "${d.name}": ${done} done, ${failed} failed, ${running} running, $${subagentCost(d).toFixed(4)}`;
+	return `Ultraspawn "${d.name}": ${done} done, ${failed} failed, ${running} running, $${subagentCost(d).toFixed(4)}`;
 }
 
 export default function (pi: ExtensionAPI) {
-	// Advertise user-scope agents and saved workflows in the tool description so the model knows what
+	// Advertise user-scope agents and saved ultraspawns in the tool description so the model knows what
 	// exists without a failed probe call. Discovered once at registration; execute() re-discovers.
 	const startupAgents = discoverAgents(process.cwd(), "user").agents;
-	const startupWorkflows = discoverWorkflows(process.cwd(), "user");
+	const startupUltraspawns = discoverUltraspawns(process.cwd(), "user");
 
 	// Subagent spend: finished calls (persisted as toolResult entries) + latest cumulative cost per in-flight call.
 	let committedCost = 0;
@@ -237,15 +237,15 @@ export default function (pi: ExtensionAPI) {
 		description: [
 			"Delegate tasks to specialized subagents with isolated context.",
 			"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder),",
-			"workflow ({workflow: name, args} runs a saved JS orchestration script, {script, args} an inline one; load the workflow skill before writing a script).",
-			'Default agent scope is "user" (agents from ~/.pi/agent/agents, workflows from ~/.pi/agent/workflows).',
-			'To enable project-local agents in .pi/agents and workflows in .pi/workflows, set agentScope: "both" (or "project").',
+			"ultraspawn ({ultraspawn: name, args} runs a saved JS orchestration script, {script, args} an inline one; load the ultraspawn skill before writing a script).",
+			'Default agent scope is "user" (agents from ~/.pi/agent/agents, ultraspawns from ~/.pi/agent/ultraspawns).',
+			'To enable project-local agents in .pi/agents and ultraspawns in .pi/ultraspawns, set agentScope: "both" (or "project").',
 			...(startupAgents.length > 0
 				? [`Available user agents: ${startupAgents.map((a) => `${a.name} — ${a.description}`).join("; ")}.`]
 				: []),
-			...(startupWorkflows.length > 0
+			...(startupUltraspawns.length > 0
 				? [
-						`Saved user workflows: ${startupWorkflows.map((w) => (w.description ? `${w.name} — ${w.description}` : w.name)).join("; ")}`,
+						`Saved user ultraspawns: ${startupUltraspawns.map((w) => (w.description ? `${w.name} — ${w.description}` : w.name)).join("; ")}`,
 					]
 				: []),
 		].join(" "),
@@ -260,8 +260,8 @@ export default function (pi: ExtensionAPI) {
 			const hasChain = (params.chain?.length ?? 0) > 0;
 			const hasTasks = (params.tasks?.length ?? 0) > 0;
 			const hasSingle = Boolean(params.agent && params.task);
-			const hasWorkflow = Boolean(params.script) || Boolean(params.workflow);
-			const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle) + Number(hasWorkflow);
+			const hasUltraspawn = Boolean(params.script) || Boolean(params.ultraspawn);
+			const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle) + Number(hasUltraspawn);
 
 			const makeDetails =
 				(mode: "single" | "parallel" | "chain") =>
@@ -285,28 +285,28 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
-			if (hasWorkflow) {
-				if (params.workflow && params.script) {
+			if (hasUltraspawn) {
+				if (params.ultraspawn && params.script) {
 					return {
 						content: [
-							{ type: "text", text: "Invalid parameters. Pass either `workflow` (saved) or `script` (inline), not both." },
+							{ type: "text", text: "Invalid parameters. Pass either `ultraspawn` (saved) or `script` (inline), not both." },
 						],
 						details: makeDetails("single")([]),
 						isError: true,
 					};
 				}
-				const saved = params.workflow ? resolveWorkflow(ctx.cwd, params.workflow, agentScope) : null;
-				if (params.workflow && !saved) {
-					const available = discoverWorkflows(ctx.cwd, agentScope).map((w) => `${w.name} (${w.source})`);
-					// Project workflows are opt-in like project agents; say so when the name exists there.
-					const hidden = agentScope === "user" ? resolveWorkflow(ctx.cwd, params.workflow, "project") : null;
+				const saved = params.ultraspawn ? resolveUltraspawn(ctx.cwd, params.ultraspawn, agentScope) : null;
+				if (params.ultraspawn && !saved) {
+					const available = discoverUltraspawns(ctx.cwd, agentScope).map((w) => `${w.name} (${w.source})`);
+					// Project ultraspawns are opt-in like project agents; say so when the name exists there.
+					const hidden = agentScope === "user" ? resolveUltraspawn(ctx.cwd, params.ultraspawn, "project") : null;
 					return {
 						content: [
 							{
 								type: "text",
 								text:
-									`Unknown workflow "${params.workflow}" (scope ${agentScope}). Available workflows: ${available.join(", ") || "none"}.` +
-									(hidden ? ` A project workflow exists at ${hidden.filePath}; pass agentScope: "both" to use it.` : ""),
+									`Unknown ultraspawn "${params.ultraspawn}" (scope ${agentScope}). Available ultraspawns: ${available.join(", ") || "none"}.` +
+									(hidden ? ` A project ultraspawn exists at ${hidden.filePath}; pass agentScope: "both" to use it.` : ""),
 							},
 						],
 						details: makeDetails("single")([]),
@@ -315,10 +315,10 @@ export default function (pi: ExtensionAPI) {
 				}
 				const script = saved ? saved.script : (params.script ?? "");
 				const name = saved ? saved.name : "inline";
-				const source: WorkflowDetails["source"] = saved ? saved.source : "inline";
+				const source: UltraspawnDetails["source"] = saved ? saved.source : "inline";
 				const runId = `wf-${Date.now().toString(36)}-${randomBytes(2).toString("hex")}`;
-				const baseDetails = (status: WorkflowDetails["status"]): WorkflowDetails => ({
-					mode: "workflow",
+				const baseDetails = (status: UltraspawnDetails["status"]): UltraspawnDetails => ({
+					mode: "ultraspawn",
 					agentScope,
 					projectAgentsDir: discovery.projectAgentsDir,
 					runId,
@@ -335,7 +335,7 @@ export default function (pi: ExtensionAPI) {
 					startedAt: Date.now(),
 				});
 
-				const approval = await approveWorkflow(ctx, {
+				const approval = await approveUltraspawn(ctx, {
 					name,
 					source,
 					filePath: saved?.filePath,
@@ -353,7 +353,7 @@ export default function (pi: ExtensionAPI) {
 					};
 				}
 
-				const outcome = await runWorkflow({
+				const outcome = await runUltraspawn({
 					runId,
 					name,
 					source,
@@ -366,7 +366,7 @@ export default function (pi: ExtensionAPI) {
 					signal,
 					runner: runSingleAgent,
 					onProgress: onUpdate
-						? (d) => onUpdate({ content: [{ type: "text", text: workflowProgressText(d) }], details: d })
+						? (d) => onUpdate({ content: [{ type: "text", text: ultraspawnProgressText(d) }], details: d })
 						: undefined,
 				});
 				const d = outcome.details;
@@ -378,7 +378,7 @@ export default function (pi: ExtensionAPI) {
 							content: [
 								{
 									type: "text",
-									text: `Workflow "${name}" finished: ${d.spawned} agents, $${cost}\n\n${formatWorkflowResult(outcome.result)}`,
+									text: `Ultraspawn "${name}" finished: ${d.spawned} agents, $${cost}\n\n${formatUltraspawnResult(outcome.result)}`,
 								},
 							],
 							details: d,
@@ -386,7 +386,7 @@ export default function (pi: ExtensionAPI) {
 					}
 					if (d.status === "aborted") {
 						return {
-							content: [{ type: "text", text: `Workflow aborted after ${d.spawned} agents ($${cost})` }],
+							content: [{ type: "text", text: `Ultraspawn aborted after ${d.spawned} agents ($${cost})` }],
 							details: d,
 							isError: true,
 						};
@@ -397,7 +397,7 @@ export default function (pi: ExtensionAPI) {
 							{
 								type: "text",
 								text:
-									`Workflow "${name}" failed: ${d.error ?? "unknown error"}` +
+									`Ultraspawn "${name}" failed: ${d.error ?? "unknown error"}` +
 									(logTail.length > 0 ? `\n\nLast logs:\n${logTail.join("\n")}` : ""),
 							},
 						],
@@ -406,7 +406,7 @@ export default function (pi: ExtensionAPI) {
 					};
 				} catch (err) {
 					return {
-						content: [{ type: "text", text: `Workflow "${name}" ended (${d.status}) but its result could not be formatted: ${errorMessage(err)}` }],
+						content: [{ type: "text", text: `Ultraspawn "${name}" ended (${d.status}) but its result could not be formatted: ${errorMessage(err)}` }],
 						details: d,
 						isError: true,
 					};

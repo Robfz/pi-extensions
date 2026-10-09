@@ -1,19 +1,19 @@
 ---
-name: workflow
-description: Write and run multi-agent orchestration scripts for the spawn tool's workflow mode (agent/parallel/pipeline/phase/log/args/applyPatch). Use before calling spawn({script}), when the user asks for a custom multi-agent workflow (fan-out reviews, verify or fix-until-pass loops, research fan-out), or for a verified code review.
+name: ultraspawn
+description: Write and run multi-agent orchestration scripts for the spawn tool's ultraspawn mode (agent/parallel/pipeline/phase/log/args/applyPatch). Use before calling spawn({script}), when the user asks for a custom multi-agent ultraspawn (fan-out reviews, verify or fix-until-pass loops, research fan-out), or for a verified code review.
 ---
 
-# Workflow scripts
+# Ultraspawn scripts
 
-Workflow mode runs a JS script that orchestrates many child agents and returns one result. You see only that result, not the children's transcripts. Use it when a job needs more agents or more control flow than the plain `spawn` modes (single, parallel up to 8, chain) give, for example dozens of agents, a branch on structured output, or loops. For a handful of independent tasks, plain `spawn` is simpler.
+Ultraspawn mode runs a JS script that orchestrates many child agents and returns one result. You see only that result, not the children's transcripts. Use it when a job needs more agents or more control flow than the plain `spawn` modes (single, parallel up to 8, chain) give, for example dozens of agents, a branch on structured output, or loops. For a handful of independent tasks, plain `spawn` is simpler.
 
-- Saved: `spawn({workflow: "review", args: {base: "main"}})`. Saved workflows live in `~/.pi/agent/workflows/<name>.js` (user) and `.pi/workflows/<name>.js` (project; opt-in with `agentScope: "both"` like project agents, then wins a name clash).
+- Saved: `spawn({ultraspawn: "review", args: {base: "main"}})`. Saved ultraspawns live in `~/.pi/agent/ultraspawns/<name>.js` (user) and `.pi/ultraspawns/<name>.js` (project; opt-in with `agentScope: "both"` like project agents, then wins a name clash).
 - Inline: `spawn({script: "<function body>", args: {…}})`.
 
 Approval is the trust gate: an approved script is trusted code that runs with the user's permissions.
 
-- **With a UI:** the user approves each run in a dialog (Run / View script / Auto-approve for this project and run / Cancel). When `agentScope` includes project agents and the project has any, the dialog lists them and the user agents they override. Auto-approval persists per project in `~/.pi/agent/workflow-approvals.json`; an auto-approved project runs without a dialog (just a notification).
-- **Without a UI (print/json mode):** a run goes ahead only if the project is auto-approved, or if it is a user-scope saved workflow called with `agentScope: "user"` (the default). Everything else is refused: inline scripts, project workflows, and any run whose `agentScope` includes project agents. To run those headless, auto-approve the project from an interactive session first.
+- **With a UI:** the user approves each run in a dialog (Run / View script / Auto-approve for this project and run / Cancel). When `agentScope` includes project agents and the project has any, the dialog lists them and the user agents they override. Auto-approval persists per project in `~/.pi/agent/ultraspawn-approvals.json`; an auto-approved project runs without a dialog (just a notification).
+- **Without a UI (print/json mode):** a run goes ahead only if the project is auto-approved, or if it is a user-scope saved ultraspawn called with `agentScope: "user"` (the default). Everything else is refused: inline scripts, project ultraspawns, and any run whose `agentScope` includes project agents. To run those headless, auto-approve the project from an interactive session first.
 
 ## Script form
 
@@ -120,6 +120,6 @@ const checks = await parallel(claims, (c) => agent(`Try to refute: ${c}`, { agen
 return claims.map((c, i) => `${checks[i].ok ? checks[i].data.verdict : `failed (${checks[i].reason})`}: ${c}`).join("\n");
 ```
 
-## Saved workflows
+## Saved ultraspawns
 
-Save reusable scripts as `.pi/workflows/<name>.js` (project) or in this repo's `workflows/` (linked to `~/.pi/agent/workflows/`). The file has the same function-body form as an inline script, with a leading `//` comment whose first line describes the workflow (`<name>: <what it does>`, shown in the `spawn` tool description) and whose rest documents `args`. Run with `spawn({workflow: "<name>", args})`; project workflows also need `agentScope: "both"`. A saved run sends only the name over the tool call, so you never re-emit the script. `review` is the canned verified review (`/review [base-branch]`).
+Save reusable scripts as `.pi/ultraspawns/<name>.js` (project) or in this repo's `ultraspawns/` (linked to `~/.pi/agent/ultraspawns/`). The file has the same function-body form as an inline script, with a leading `//` comment whose first line describes the ultraspawn (`<name>: <what it does>`, shown in the `spawn` tool description) and whose rest documents `args`. Run with `spawn({ultraspawn: "<name>", args})`; project ultraspawns also need `agentScope: "both"`. A saved run sends only the name over the tool call, so you never re-emit the script. `review` is the canned verified review (`/ultrareview [base-branch]`).

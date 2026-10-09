@@ -1,19 +1,19 @@
-/** Workflow runtime (workflow.ts + worker source) against a fake child runner. No git, no pi children. */
+/** Ultraspawn runtime (ultraspawn.ts + worker source) against a fake child runner. No git, no pi children. */
 
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, test } from "node:test";
-import { subagentCost, type WorkflowAgentResult, type WorkflowDetails } from "../types.ts";
+import { subagentCost, type UltraspawnAgentResult, type UltraspawnDetails } from "../types.ts";
 import {
-	composeWorkflowTask,
-	formatWorkflowResult,
+	composeUltraspawnTask,
+	formatUltraspawnResult,
 	parseFollowUps,
-	runWorkflow,
+	runUltraspawn,
 	type WorktreeOps,
-	type WorkflowRunOptions,
-} from "../workflow.ts";
+	type UltraspawnRunOptions,
+} from "../ultraspawn.ts";
 import { type FakePlan, type FakeReply, makeFakeRunner, nextRunId, testAgents } from "./fake-runner.ts";
 
 const unhandled: unknown[] = [];
@@ -21,12 +21,12 @@ const onUnhandled = (err: unknown) => unhandled.push(err);
 process.on("unhandledRejection", onUnhandled);
 after(() => {
 	process.off("unhandledRejection", onUnhandled);
-	assert.deepEqual(unhandled, [], "no unhandled rejections during workflow tests");
+	assert.deepEqual(unhandled, [], "no unhandled rejections during ultraspawn tests");
 });
 
-function run(script: string, plan: FakePlan | FakeReply = {}, extra: Partial<WorkflowRunOptions> = {}) {
+function run(script: string, plan: FakePlan | FakeReply = {}, extra: Partial<UltraspawnRunOptions> = {}) {
 	const fake = makeFakeRunner(plan);
-	const outcome = runWorkflow({
+	const outcome = runUltraspawn({
 		runId: nextRunId(),
 		name: "inline",
 		source: "inline",
@@ -42,8 +42,8 @@ function run(script: string, plan: FakePlan | FakeReply = {}, extra: Partial<Wor
 	return { fake, outcome };
 }
 
-function assertDone(details: WorkflowDetails) {
-	assert.equal(details.status, "done", `workflow failed: ${details.error}`);
+function assertDone(details: UltraspawnDetails) {
+	assert.equal(details.status, "done", `ultraspawn failed: ${details.error}`);
 }
 
 describe("script return value and args", () => {
@@ -56,15 +56,15 @@ describe("script return value and args", () => {
 		assert.ok(details.endedAt && details.endedAt >= details.startedAt);
 	});
 
-	test("formatWorkflowResult: string as is, object as JSON, undefined placeholder", () => {
-		assert.equal(formatWorkflowResult("# report"), "# report");
-		assert.equal(formatWorkflowResult({ a: 1 }), '{\n  "a": 1\n}');
-		assert.equal(formatWorkflowResult(undefined), "(no return value)");
+	test("formatUltraspawnResult: string as is, object as JSON, undefined placeholder", () => {
+		assert.equal(formatUltraspawnResult("# report"), "# report");
+		assert.equal(formatUltraspawnResult({ a: 1 }), '{\n  "a": 1\n}');
+		assert.equal(formatUltraspawnResult(undefined), "(no return value)");
 		const cyclic: Record<string, unknown> = {};
 		cyclic.self = cyclic;
-		assert.equal(formatWorkflowResult(cyclic), "[object Object]");
-		assert.equal(formatWorkflowResult(Object.create(null)), "{}");
-		assert.equal(formatWorkflowResult(10n), "10");
+		assert.equal(formatUltraspawnResult(cyclic), "[object Object]");
+		assert.equal(formatUltraspawnResult(Object.create(null)), "{}");
+		assert.equal(formatUltraspawnResult(10n), "10");
 	});
 
 	// Shallow freeze of a structured clone (per plan): nested edits stay inside the worker.
@@ -197,7 +197,7 @@ describe("logs and phases", () => {
 	});
 
 	test("onProgress receives running snapshots and the final state", async () => {
-		const seen: WorkflowDetails[] = [];
+		const seen: UltraspawnDetails[] = [];
 		const { details } = await run(`log("x"); await agent("a"); return 1;`, {}, { onProgress: (d) => seen.push(d) }).outcome;
 		assertDone(details);
 		assert.ok(seen.some((d) => d.status === "running"));
@@ -236,7 +236,7 @@ describe("child specs", () => {
 		for (const spec of fake.specs) {
 			assert.ok(spec.extraExcludedTools?.includes("spawn"));
 			assert.ok(spec.extraExcludedTools?.includes("subagent"));
-			assert.ok(spec.task.includes("<workflow-instructions>"));
+			assert.ok(spec.task.includes("<ultraspawn-instructions>"));
 			// cursor agents are not offered for follow-ups
 			assert.ok(spec.task.includes("one of: general, scout)"), spec.task);
 		}
@@ -251,12 +251,12 @@ describe("child specs", () => {
 		assert.equal(fake.specs[0].agentName, "general");
 	});
 
-	test("composeWorkflowTask starts with the prompt", () => {
-		const task = composeWorkflowTask("do it", ["a", "b"]);
+	test("composeUltraspawnTask starts with the prompt", () => {
+		const task = composeUltraspawnTask("do it", ["a", "b"]);
 		assert.ok(task.startsWith("do it\n"));
 		assert.ok(task.includes("one of: a, b"));
 		assert.ok(!task.includes("JSON Schema"));
-		assert.ok(composeWorkflowTask("x", ["a"], { type: "object" }).includes('{"type":"object"}'));
+		assert.ok(composeUltraspawnTask("x", ["a"], { type: "object" }).includes('{"type":"object"}'));
 	});
 
 	test("usage cost of every attempt lands in details.results", async () => {
@@ -281,7 +281,7 @@ describe("failures come back as values", () => {
 		const { fake, outcome } = run(script, plan);
 		const { details, result } = await outcome;
 		assertDone(details);
-		const r = result as Record<string, WorkflowAgentResult>;
+		const r = result as Record<string, UltraspawnAgentResult>;
 		assert.equal(r.failed.ok, false);
 		assert.equal(r.failed.reason, "error");
 		assert.equal(r.failed.error, "child blew up");
@@ -316,7 +316,7 @@ describe("failures come back as values", () => {
 		const { fake, outcome } = run(`return await agent("x", { schema: { type: "string", pattern: "(" } });`);
 		const { details, result } = await outcome;
 		assertDone(details);
-		const r = result as WorkflowAgentResult;
+		const r = result as UltraspawnAgentResult;
 		assert.equal(r.ok, false);
 		assert.equal(r.reason, "error");
 		assert.match(r.error ?? "", /invalid schema: schema could not be evaluated/);
@@ -329,7 +329,7 @@ describe("failures come back as values", () => {
 			`return await agent("x", { schema: { type: "object", properties: { x: { type: "string", pattern: "(" } } } });`,
 		);
 		const { result } = await outcome;
-		const r = result as WorkflowAgentResult;
+		const r = result as UltraspawnAgentResult;
 		assert.equal(r.reason, "error");
 		assert.match(r.error ?? "", /invalid pattern/);
 		assert.equal(fake.specs.length, 0);
@@ -347,7 +347,7 @@ describe("failures come back as values", () => {
 		});
 		const { details, result } = await outcome;
 		assertDone(details);
-		assert.equal((result as WorkflowAgentResult).reason, "isolation");
+		assert.equal((result as UltraspawnAgentResult).reason, "isolation");
 		assert.equal(fake.specs.length, 0);
 	});
 });
@@ -358,7 +358,7 @@ describe("timeout", () => {
 		const { fake, outcome } = run(`return await agent("slow", { timeout: 50 });`, { delayMs: 500 });
 		const { details, result } = await outcome;
 		assertDone(details);
-		const r = result as WorkflowAgentResult;
+		const r = result as UltraspawnAgentResult;
 		assert.equal(r.ok, false);
 		assert.equal(r.reason, "timeout");
 		assert.match(r.error ?? "", /Timed out after 50 ms/);
@@ -371,7 +371,7 @@ describe("timeout", () => {
 		const { fake, outcome } = run(`return await agent("n?", { schema: ${schema}, timeout: 150 });`, { output: "not json", delayMs: 60 });
 		const { details, result } = await outcome;
 		assertDone(details);
-		const r = result as WorkflowAgentResult;
+		const r = result as UltraspawnAgentResult;
 		assert.equal(r.reason, "timeout");
 		assert.ok(fake.specs.length >= 2 && fake.specs.length < 4, `attempts: ${fake.specs.length}`);
 		assert.equal(r.attempts, fake.specs.length);
@@ -478,7 +478,7 @@ describe("schema", () => {
 		const { fake, outcome } = run(`return await agent("n?", { schema: ${schema} });`, plan);
 		const { details, result } = await outcome;
 		assertDone(details);
-		const r = result as WorkflowAgentResult;
+		const r = result as UltraspawnAgentResult;
 		assert.equal(r.ok, true);
 		assert.equal(r.attempts, 2);
 		assert.deepEqual(r.data, { n: 42 });
@@ -494,7 +494,7 @@ describe("schema", () => {
 		const { fake, outcome } = run(`return await agent("n?", { schema: ${schema} });`, { output: '```json\n{"n": "x"}\n```' });
 		const { details, result } = await outcome;
 		assertDone(details);
-		const r = result as WorkflowAgentResult;
+		const r = result as UltraspawnAgentResult;
 		assert.equal(r.ok, false);
 		assert.equal(r.reason, "schema");
 		assert.equal(r.attempts, 4);
@@ -508,7 +508,7 @@ describe("schema", () => {
 		const plan: FakePlan = (_s, i) => (i === 0 ? { output: "nope" } : { stopReason: "error", errorMessage: "crash" });
 		const { fake, outcome } = run(`return await agent("n?", { schema: ${schema} });`, plan);
 		const { result } = await outcome;
-		const r = result as WorkflowAgentResult;
+		const r = result as UltraspawnAgentResult;
 		assert.equal(r.reason, "error");
 		assert.equal(r.attempts, 2);
 		assert.equal(fake.specs.length, 2);
@@ -538,31 +538,31 @@ describe("follow-ups", () => {
 		assert.deepEqual(parseFollowUps(out, agents), { output: out, followUps: [] });
 	});
 
-	test("through runWorkflow", async () => {
+	test("through runUltraspawn", async () => {
 		const { details, result } = await run(`return await agent("x");`, {
 			output: 'answer\n```followups\n[{"task": "more", "agent": "general"}, {"task": "c", "agent": "cross"}]\n```',
 		}).outcome;
 		assertDone(details);
-		const r = result as WorkflowAgentResult;
+		const r = result as UltraspawnAgentResult;
 		assert.equal(r.output, "answer");
 		assert.deepEqual(r.followUps, [{ task: "more", agent: "general" }], "cursor agents are not valid follow-up targets");
 	});
 });
 
 describe("script errors", () => {
-	test("throw → failed with message and workflow.js line", async () => {
+	test("throw → failed with message and ultraspawn.js line", async () => {
 		const { details } = await run(`log("a");\n\nthrow new Error("boom");`).outcome;
 		assert.equal(details.status, "failed");
 		assert.match(details.error ?? "", /boom/);
-		assert.match(details.error ?? "", /workflow\.js:3/);
+		assert.match(details.error ?? "", /ultraspawn\.js:3/);
 		assert.deepEqual(details.logs, ["a"]);
 	});
 
-	test("syntax error → failed, mentions workflow.js", async () => {
+	test("syntax error → failed, mentions ultraspawn.js", async () => {
 		const { details } = await run(`const x = ;\nreturn x;`).outcome;
 		assert.equal(details.status, "failed");
 		assert.match(details.error ?? "", /SyntaxError/);
-		assert.match(details.error ?? "", /workflow\.js/);
+		assert.match(details.error ?? "", /ultraspawn\.js/);
 	});
 
 	test("non-serializable return → failed mentioning serialization", async () => {
@@ -582,7 +582,7 @@ describe("script errors", () => {
 			const { details, result } = await run(`await agent("a"); return ${expr};`, { cost: 0.5 }).outcome;
 			assert.equal(details.status, "failed");
 			assert.equal(result, undefined);
-			assert.match(details.error ?? "", /workflow returned a value that is not JSON-serializable/);
+			assert.match(details.error ?? "", /ultraspawn returned a value that is not JSON-serializable/);
 			assert.match(details.error ?? "", pattern);
 			assert.equal(details.results.length, 1);
 			assert.equal(subagentCost(details), 0.5);
@@ -716,12 +716,12 @@ describe("worktree cleanup and setup bounds (injected ops)", () => {
 			const { fake, outcome } = run(`return await agent("x", { isolation: "worktree" });`, {}, { worktrees: wt.ops });
 			const { details, result } = await outcome;
 			assertDone(details);
-			const r = result as WorkflowAgentResult;
+			const r = result as UltraspawnAgentResult;
 			assert.equal(r.ok, true, r.error);
 			assert.equal(r.patch, "PATCH");
 			assert.equal(wt.removed.length, 1);
 			assert.equal(fake.specs.length, 1);
-			assert.ok(path.basename(wt.runDir ?? "").startsWith("pi-workflow-"), `run dir ${wt.runDir}`);
+			assert.ok(path.basename(wt.runDir ?? "").startsWith("pi-ultraspawn-"), `run dir ${wt.runDir}`);
 		} finally {
 			wt.cleanup();
 		}
@@ -733,7 +733,7 @@ describe("worktree cleanup and setup bounds (injected ops)", () => {
 			const { fake, outcome } = run(`return await agent("x", { isolation: "worktree", timeout: 20 });`, {}, { worktrees: wt.ops });
 			const { details, result } = await outcome;
 			assertDone(details);
-			const r = result as WorkflowAgentResult;
+			const r = result as UltraspawnAgentResult;
 			assert.equal(r.reason, "timeout");
 			assert.equal(fake.specs.length, 0);
 			assert.equal(details.spawned, 0);

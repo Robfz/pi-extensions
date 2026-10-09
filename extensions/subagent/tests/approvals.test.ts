@@ -1,6 +1,6 @@
 /**
  * approvals.ts with PI_CODING_AGENT_DIR pointed at a temp dir (pi's getAgentDir() reads it on every call),
- * so the real ~/.pi/agent/workflow-approvals.json is never touched.
+ * so the real ~/.pi/agent/ultraspawn-approvals.json is never touched.
  */
 
 import assert from "node:assert/strict";
@@ -11,12 +11,12 @@ import * as path from "node:path";
 import { after, before, describe, test } from "node:test";
 import {
 	approvalsPath,
-	decideWorkflowGate,
+	decideUltraspawnGate,
 	describeProjectAgents,
 	isAutoApproved,
 	projectKey,
 	setAutoApproved,
-	type WorkflowGateInput,
+	type UltraspawnGateInput,
 } from "../approvals.ts";
 
 const agentDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pi-approvals-test-")));
@@ -92,8 +92,8 @@ describe("approvals", () => {
 	});
 });
 
-describe("decideWorkflowGate", () => {
-	const base: WorkflowGateInput = {
+describe("decideUltraspawnGate", () => {
+	const base: UltraspawnGateInput = {
 		name: "review",
 		hasUI: false,
 		autoApproved: false,
@@ -101,11 +101,11 @@ describe("decideWorkflowGate", () => {
 		agentScope: "user",
 		projectAgents: [],
 	};
-	const gate = (extra: Partial<WorkflowGateInput>) => decideWorkflowGate({ ...base, ...extra });
+	const gate = (extra: Partial<UltraspawnGateInput>) => decideUltraspawnGate({ ...base, ...extra });
 	const reviewer = { name: "reviewer", overridesUser: true };
 	const local = { name: "local-helper", overridesUser: false };
 
-	test("headless: only a user workflow with agentScope user runs", () => {
+	test("headless: only a user ultraspawn with agentScope user runs", () => {
 		assert.deepEqual(gate({}), { action: "run" });
 		for (const extra of [
 			{ source: "inline" as const },

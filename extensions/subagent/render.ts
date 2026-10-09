@@ -14,8 +14,8 @@ import {
 	type SingleResult,
 	type SubagentDetails,
 	subagentCost,
-	type WorkflowAgentRow,
-	type WorkflowDetails,
+	type UltraspawnAgentRow,
+	type UltraspawnDetails,
 } from "./types.ts";
 
 /** Structural subset of the `spawn` tool params that renderCall reads. */
@@ -26,7 +26,7 @@ export interface SubagentCallArgs {
 	chain?: { agent: string; task: string }[];
 	agentScope?: AgentScope;
 	script?: string;
-	workflow?: string;
+	ultraspawn?: string;
 	args?: Record<string, unknown>;
 }
 
@@ -154,7 +154,7 @@ export function getDisplayItems(messages: Message[]): DisplayItem[] {
 
 export function renderCall(args: SubagentCallArgs, theme: Theme): Component {
 	const scope: AgentScope = args.agentScope ?? "user";
-	if (args.script || args.workflow) return renderWorkflowCall(args, theme);
+	if (args.script || args.ultraspawn) return renderUltraspawnCall(args, theme);
 	if (args.chain && args.chain.length > 0) {
 		let text =
 			theme.fg("toolTitle", theme.bold("subagent ")) +
@@ -203,9 +203,9 @@ export function renderResult(
 	theme: Theme,
 ): Component {
 	const details = result.details as SubagentDetails | undefined;
-	if (details?.mode === "workflow") {
+	if (details?.mode === "ultraspawn") {
 		const first = result.content[0];
-		return renderWorkflowResult(details, { expanded }, theme, first?.type === "text" ? first.text : "");
+		return renderUltraspawnResult(details, { expanded }, theme, first?.type === "text" ? first.text : "");
 	}
 	if (!details || details.results.length === 0) {
 		const text = result.content[0];
@@ -476,15 +476,15 @@ export function renderResult(
 	return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);
 }
 
-// ── workflow mode ──
+// ── ultraspawn mode ──
 
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…` : text);
 
-export function renderWorkflowCall(args: SubagentCallArgs, theme: Theme): Component {
+export function renderUltraspawnCall(args: SubagentCallArgs, theme: Theme): Component {
 	const scope: AgentScope = args.agentScope ?? "user";
 	let text =
-		theme.fg("toolTitle", theme.bold("subagent workflow ")) +
-		theme.fg("accent", args.workflow || "inline") +
+		theme.fg("toolTitle", theme.bold("subagent ultraspawn ")) +
+		theme.fg("accent", args.ultraspawn || "inline") +
 		theme.fg("muted", ` [${scope}]`);
 	if (args.args && Object.keys(args.args).length > 0) {
 		text += `\n  ${theme.fg("muted", "args: ")}${theme.fg("dim", clip(JSON.stringify(args.args), 60))}`;
@@ -493,7 +493,7 @@ export function renderWorkflowCall(args: SubagentCallArgs, theme: Theme): Compon
 	return new Text(text, 0, 0);
 }
 
-function workflowIcon(details: WorkflowDetails, theme: Theme): string {
+function ultraspawnIcon(details: UltraspawnDetails, theme: Theme): string {
 	switch (details.status) {
 		case "running":
 			return theme.fg("warning", "…");
@@ -509,7 +509,7 @@ function workflowIcon(details: WorkflowDetails, theme: Theme): string {
 	}
 }
 
-function rowIcon(row: WorkflowAgentRow, theme: Theme): string {
+function rowIcon(row: UltraspawnAgentRow, theme: Theme): string {
 	switch (row.status) {
 		case "queued":
 			return theme.fg("muted", "·");
@@ -522,14 +522,14 @@ function rowIcon(row: WorkflowAgentRow, theme: Theme): string {
 	}
 }
 
-/** Model-facing text after the "Workflow … finished" header line, i.e. the formatted script result. */
-function workflowResultBody(text: string): string {
+/** Model-facing text after the "Ultraspawn … finished" header line, i.e. the formatted script result. */
+function ultraspawnResultBody(text: string): string {
 	const i = text.indexOf("\n\n");
 	return i >= 0 ? text.slice(i + 2) : "";
 }
 
-export function renderWorkflowResult(
-	details: WorkflowDetails,
+export function renderUltraspawnResult(
+	details: UltraspawnDetails,
 	{ expanded }: { expanded: boolean },
 	theme: Theme,
 	contentText: string,
@@ -545,7 +545,7 @@ export function renderWorkflowResult(
 
 	if (details.status === "canceled") {
 		return new Text(
-			`${workflowIcon(details, theme)} ${theme.fg("toolTitle", theme.bold(`workflow ${details.name}`))}  ${theme.fg("muted", details.status)}`,
+			`${ultraspawnIcon(details, theme)} ${theme.fg("toolTitle", theme.bold(`ultraspawn ${details.name}`))}  ${theme.fg("muted", details.status)}`,
 			0,
 			0,
 		);
@@ -562,7 +562,7 @@ export function renderWorkflowResult(
 	].join(" · ");
 	const statusColor = details.status === "done" ? "success" : details.status === "running" ? "warning" : "error";
 	let header =
-		`${workflowIcon(details, theme)} ${theme.fg("toolTitle", theme.bold(`workflow ${details.name}`))}  ` +
+		`${ultraspawnIcon(details, theme)} ${theme.fg("toolTitle", theme.bold(`ultraspawn ${details.name}`))}  ` +
 		`${theme.fg(statusColor, details.status)}  ${theme.fg("muted", counts)}`;
 	if (details.error && details.status !== "done") header += `\n${theme.fg("error", details.error)}`;
 
@@ -577,9 +577,9 @@ export function renderWorkflowResult(
 		return `  ${line}`;
 	});
 
-	const rowName = (r: WorkflowAgentRow) => `${r.agent}${r.label ? ` [${r.label}]` : ""}`;
+	const rowName = (r: UltraspawnAgentRow) => `${r.agent}${r.label ? ` [${r.label}]` : ""}`;
 	const mdTheme = getMarkdownTheme();
-	const body = details.status === "done" ? workflowResultBody(contentText) : "";
+	const body = details.status === "done" ? ultraspawnResultBody(contentText) : "";
 
 	if (!expanded) {
 		let text = header;

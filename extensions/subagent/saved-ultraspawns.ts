@@ -1,8 +1,8 @@
 /**
- * Saved workflow discovery: `*.js` files holding a workflow script (async function body, same form as
- * an inline `spawn({script})`), named by file stem. User scope: `~/.pi/agent/workflows/` (entries are
- * usually symlinks into this repo). Project scope: the nearest `.pi/workflows/` at or above cwd.
- * Scopes select directories exactly as for agents; with "both", a project workflow wins a name clash.
+ * Saved ultraspawn discovery: `*.js` files holding an ultraspawn script (async function body, same form as
+ * an inline `spawn({script})`), named by file stem. User scope: `~/.pi/agent/ultraspawns/` (entries are
+ * usually symlinks into this repo). Project scope: the nearest `.pi/ultraspawns/` at or above cwd.
+ * Scopes select directories exactly as for agents; with "both", a project ultraspawn wins a name clash.
  */
 
 import * as fs from "node:fs";
@@ -10,7 +10,7 @@ import * as path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { type AgentScope, findNearestProjectDir } from "./agents.ts";
 
-export interface SavedWorkflow {
+export interface SavedUltraspawn {
 	name: string;
 	/** First line of the leading `//` comment header, minus a `<name>:` prefix; "" when absent. */
 	description: string;
@@ -21,7 +21,7 @@ export interface SavedWorkflow {
 
 const NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
 
-export function isValidWorkflowName(name: string): boolean {
+export function isValidUltraspawnName(name: string): boolean {
 	return NAME_PATTERN.test(name);
 }
 
@@ -40,18 +40,18 @@ function describe(name: string, script: string): string {
 	return text.startsWith(`${name}:`) ? text.slice(name.length + 1).trim() : text;
 }
 
-function loadWorkflowsFromDir(dir: string, source: "user" | "project"): SavedWorkflow[] {
+function loadUltraspawnsFromDir(dir: string, source: "user" | "project"): SavedUltraspawn[] {
 	let entries: string[];
 	try {
 		entries = fs.readdirSync(dir);
 	} catch {
 		return [];
 	}
-	const workflows: SavedWorkflow[] = [];
+	const ultraspawns: SavedUltraspawn[] = [];
 	for (const entry of entries.sort()) {
 		if (!entry.endsWith(".js")) continue;
 		const name = entry.slice(0, -3);
-		if (!isValidWorkflowName(name)) continue;
+		if (!isValidUltraspawnName(name)) continue;
 		const filePath = path.join(dir, entry);
 		// statSync follows symlinks, so linked files count and links to directories don't.
 		if (!isFile(filePath)) continue;
@@ -61,25 +61,25 @@ function loadWorkflowsFromDir(dir: string, source: "user" | "project"): SavedWor
 		} catch {
 			continue;
 		}
-		workflows.push({ name, description: describe(name, script), source, filePath, script });
+		ultraspawns.push({ name, description: describe(name, script), source, filePath, script });
 	}
-	return workflows;
+	return ultraspawns;
 }
 
-export function discoverWorkflows(cwd: string, scope: AgentScope): SavedWorkflow[] {
-	const byName = new Map<string, SavedWorkflow>();
+export function discoverUltraspawns(cwd: string, scope: AgentScope): SavedUltraspawn[] {
+	const byName = new Map<string, SavedUltraspawn>();
 	if (scope !== "project") {
-		for (const wf of loadWorkflowsFromDir(path.join(getAgentDir(), "workflows"), "user")) byName.set(wf.name, wf);
+		for (const wf of loadUltraspawnsFromDir(path.join(getAgentDir(), "ultraspawns"), "user")) byName.set(wf.name, wf);
 	}
 	if (scope !== "user") {
-		const projectDir = findNearestProjectDir(cwd, "workflows");
-		if (projectDir) for (const wf of loadWorkflowsFromDir(projectDir, "project")) byName.set(wf.name, wf);
+		const projectDir = findNearestProjectDir(cwd, "ultraspawns");
+		if (projectDir) for (const wf of loadUltraspawnsFromDir(projectDir, "project")) byName.set(wf.name, wf);
 	}
 	return Array.from(byName.values());
 }
 
 /** Null for an invalid or unknown name. */
-export function resolveWorkflow(cwd: string, name: string, scope: AgentScope): SavedWorkflow | null {
-	if (!isValidWorkflowName(name)) return null;
-	return discoverWorkflows(cwd, scope).find((wf) => wf.name === name) ?? null;
+export function resolveUltraspawn(cwd: string, name: string, scope: AgentScope): SavedUltraspawn | null {
+	if (!isValidUltraspawnName(name)) return null;
+	return discoverUltraspawns(cwd, scope).find((wf) => wf.name === name) ?? null;
 }

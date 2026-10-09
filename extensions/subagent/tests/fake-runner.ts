@@ -1,10 +1,10 @@
-/** Test doubles for the workflow runtime: a scripted ChildRunner and in-memory agent configs. */
+/** Test doubles for the ultraspawn runtime: a scripted ChildRunner and in-memory agent configs. */
 
 import type { Message } from "@earendil-works/pi-ai";
 import type { AgentConfig } from "../agents.ts";
 import type { RunSpec } from "../runner.ts";
 import { emptyUsage, type SingleResult } from "../types.ts";
-import type { ChildRunner } from "../workflow.ts";
+import type { ChildRunner } from "../ultraspawn.ts";
 
 export interface FakeReply {
 	/** Final assistant text. */

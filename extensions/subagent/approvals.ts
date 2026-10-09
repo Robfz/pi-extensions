@@ -1,5 +1,5 @@
 /**
- * Per-project auto-approval for workflow scripts, stored in `<agentDir>/workflow-approvals.json`:
+ * Per-project auto-approval for ultraspawn scripts, stored in `<agentDir>/ultraspawn-approvals.json`:
  * `{ "version": 1, "projects": { "<abs project root>": { "approvedAt": "<ISO>" } } }`.
  * User-level so a cloned repo cannot pre-approve itself.
  */
@@ -15,7 +15,7 @@ interface ApprovalsFile {
 }
 
 export function approvalsPath(): string {
-	return path.join(getAgentDir(), "workflow-approvals.json");
+	return path.join(getAgentDir(), "ultraspawn-approvals.json");
 }
 
 /** Git toplevel of `cwd`, else the resolved `cwd`. */
@@ -60,13 +60,13 @@ export async function setAutoApproved(key: string): Promise<void> {
 	});
 }
 
-/** A project agent a workflow run could use; `overridesUser` when it shadows a user agent of the same name. */
+/** A project agent an ultraspawn run could use; `overridesUser` when it shadows a user agent of the same name. */
 export interface ProjectAgentRef {
 	name: string;
 	overridesUser: boolean;
 }
 
-export interface WorkflowGateInput {
+export interface UltraspawnGateInput {
 	name: string;
 	hasUI: boolean;
 	autoApproved: boolean;
@@ -78,7 +78,7 @@ export interface WorkflowGateInput {
 	projectAgentsDir?: string | null;
 }
 
-export type WorkflowGateDecision =
+export type UltraspawnGateDecision =
 	| { action: "run" }
 	/** Run without a dialog, telling the user via `message`. */
 	| { action: "notify"; message: string }
@@ -94,29 +94,29 @@ export function describeProjectAgents(agents: ProjectAgentRef[], dir?: string | 
 }
 
 /**
- * Whether a workflow may run. Auto-approved projects run (with a notice when there is a UI).
- * Otherwise the UI asks; without a UI only a user-scope saved workflow with agentScope "user" runs,
+ * Whether an ultraspawn may run. Auto-approved projects run (with a notice when there is a UI).
+ * Otherwise the UI asks; without a UI only a user-scope saved ultraspawn with agentScope "user" runs,
  * since nothing repo-controlled (script or agents) is involved.
  */
-export function decideWorkflowGate(input: WorkflowGateInput): WorkflowGateDecision {
+export function decideUltraspawnGate(input: UltraspawnGateInput): UltraspawnGateDecision {
 	const note = describeProjectAgents(input.projectAgents, input.projectAgentsDir);
 	if (input.autoApproved) {
 		if (!input.hasUI) return { action: "run" };
-		const message = `Workflow "${input.name}" auto-approved for this project${note ? `\n${note}` : ""}`;
+		const message = `Ultraspawn "${input.name}" auto-approved for this project${note ? `\n${note}` : ""}`;
 		return { action: "notify", message };
 	}
 	if (input.hasUI) return note ? { action: "confirm", projectAgentsNote: note } : { action: "confirm" };
 	if (input.source === "user" && input.agentScope === "user") return { action: "run" };
 	const what =
 		input.source === "inline"
-			? "Inline workflow scripts"
+			? "Inline ultraspawn scripts"
 			: input.source === "project"
-				? "Project workflows"
-				: `Workflows with agentScope "${input.agentScope}"`;
+				? "Project ultraspawns"
+				: `Ultraspawns with agentScope "${input.agentScope}"`;
 	return {
 		action: "refuse",
 		message:
-			`${what} need interactive approval: without a UI only user workflows with agentScope "user" run unattended. ` +
+			`${what} need interactive approval: without a UI only user ultraspawns with agentScope "user" run unattended. ` +
 			`Start a TUI session and choose "Auto-approve for this project" to allow them here.${note ? `\n${note}` : ""}`,
 	};
 }

@@ -1,5 +1,5 @@
 /**
- * Manual smoke test of workflow mode with real pi children (costs a few cents; not part of `npm test`).
+ * Manual smoke test of ultraspawn mode with real pi children (costs a few cents; not part of `npm test`).
  * Run: npm run smoke. Needs `pi` on PATH with Anthropic credentials.
  * Covers: schema call, parallel of 2, log, a timeout that does not fire, one isolated agent + applyPatch.
  */
@@ -12,7 +12,7 @@ import * as path from "node:path";
 import type { AgentConfig } from "../agents.ts";
 import { runSingleAgent } from "../runner.ts";
 import { subagentCost } from "../types.ts";
-import { formatWorkflowResult, runWorkflow } from "../workflow.ts";
+import { formatUltraspawnResult, runUltraspawn } from "../ultraspawn.ts";
 import { createIsolatedWorktree } from "../worktree.ts";
 
 const MODEL = process.env.SMOKE_MODEL ?? "claude-haiku-4-5";
@@ -74,7 +74,7 @@ console.log(`smoke: model ${MODEL}, repo ${repo}`);
 const t0 = Date.now();
 let lastLine = "";
 let runDir: string | undefined;
-const { details, result } = await runWorkflow({
+const { details, result } = await runUltraspawn({
 	runId: `smoke-${Date.now().toString(36)}`,
 	name: "smoke",
 	source: "inline",
@@ -102,7 +102,7 @@ const { details, result } = await runWorkflow({
 const cost = subagentCost(details);
 console.log("\nlogs:");
 for (const l of details.logs) console.log(`  ${l}`);
-console.log(`\nresult:\n${formatWorkflowResult(result)}`);
+console.log(`\nresult:\n${formatUltraspawnResult(result)}`);
 console.log(
 	`\nstatus=${details.status} spawned=${details.spawned} attempts=${details.results.length} cost=$${cost.toFixed(4)} time=${((Date.now() - t0) / 1000).toFixed(1)}s`,
 );

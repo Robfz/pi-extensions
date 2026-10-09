@@ -1,11 +1,11 @@
 /**
- * Source of the workflow worker thread, run with `new Worker(WORKFLOW_WORKER_SOURCE, { eval: true, workerData })`.
+ * Source of the ultraspawn worker thread, run with `new Worker(ULTRASPAWN_WORKER_SOURCE, { eval: true, workerData })`.
  * Plain CommonJS: an eval worker cannot load TypeScript. The script runs in a bare `node:vm` context
- * (no require/process/timers) as the body of an async function receiving the workflow API.
+ * (no require/process/timers) as the body of an async function receiving the ultraspawn API.
  * Host protocol: see HostToWorker / WorkerToHost in types.ts.
  */
 
-export const WORKFLOW_WORKER_SOURCE = String.raw`
+export const ULTRASPAWN_WORKER_SOURCE = String.raw`
 "use strict";
 const { parentPort, workerData } = require("node:worker_threads");
 const vm = require("node:vm");
@@ -113,7 +113,7 @@ try {
 	main = vm.runInContext(
 		"(async ({ agent, parallel, pipeline, phase, log, args, applyPatch, console }) => {\n" + workerData.script + "\n})",
 		context,
-		{ filename: "workflow.js", lineOffset: -1 },
+		{ filename: "ultraspawn.js", lineOffset: -1 },
 	);
 } catch (err) {
 	postError(err);
@@ -143,7 +143,7 @@ if (main) {
 				const why = err !== null && typeof err === "object" && typeof err.message === "string" ? err.message : String(err);
 				parentPort.postMessage({
 					type: "error",
-					message: "workflow returned a value that is not JSON-serializable: " + why + "; return plain data",
+					message: "ultraspawn returned a value that is not JSON-serializable: " + why + "; return plain data",
 				});
 				return;
 			}

@@ -1,6 +1,6 @@
 ---
 name: adversarial-reviewer
-description: Tries to refute a single code review finding against the actual code; returns stands, refuted, or uncertain with a concrete argument. Read-only. Used by review workflows.
+description: Tries to refute a single code review finding against the actual code; returns stands, refuted, or uncertain with a concrete argument. Read-only. Used by the review ultraspawn.
 tools: read, grep, find, ls, bash
 excludedTools: spawn, subagent
 model: claude-opus-5-5

@@ -1,5 +1,5 @@
 /**
- * Git worktree isolation for workflow agents and `applyPatch` on the user's checkout.
+ * Git worktree isolation for ultraspawn agents and `applyPatch` on the user's checkout.
  * An isolated worktree is a detached checkout of HEAD plus the checkout's uncommitted and untracked
  * changes, frozen in a throwaway base commit so the agent's changes diff cleanly against it.
  * All git calls go through execFile (no shell) with a buffer cap and timeout; hooks are disabled.
@@ -88,15 +88,15 @@ export async function createIsolatedWorktree(repoRoot: string, runDir: string, i
 		await git(wt, ["add", "-A"]);
 		await git(wt, [
 			"-c",
-			"user.name=pi-workflow",
+			"user.name=pi-ultraspawn",
 			"-c",
-			"user.email=pi-workflow@localhost",
+			"user.email=pi-ultraspawn@localhost",
 			"commit",
 			"-q",
 			"--no-verify",
 			"--allow-empty",
 			"-m",
-			`pi-workflow base (${path.basename(runDir)})`,
+			`pi-ultraspawn base (${path.basename(runDir)})`,
 		]);
 		const baseCommit = (await git(wt, ["rev-parse", "HEAD"])).trim();
 		return { path: wt, baseCommit };

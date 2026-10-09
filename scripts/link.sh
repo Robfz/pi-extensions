@@ -8,7 +8,7 @@
 #   <repo>/<kind>/<entry>  ->  ~/.pi/agent/<kind>/<entry>
 #   <repo>/<file>           -> ~/.pi/agent/<file>   (APPEND_SYSTEM.md)
 #
-# Kinds: extensions, agents, skills, themes, prompts, workflows.
+# Kinds: extensions, agents, skills, themes, prompts, ultraspawns.
 # README.md files and dotfiles at the top of each kind dir are skipped.
 #
 # Existing correct symlinks are left alone. Symlinks pointing elsewhere are
@@ -19,7 +19,7 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
-KINDS="extensions agents skills themes prompts workflows"
+KINDS="extensions agents skills themes prompts ultraspawns"
 TOP_FILES="APPEND_SYSTEM.md"
 
 linked=0 kept=0 skipped=0

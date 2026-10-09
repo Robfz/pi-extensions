@@ -1,10 +1,19 @@
 /** Workflow runtime (workflow.ts + worker source) against a fake child runner. No git, no pi children. */
 
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
 import * as os from "node:os";
+import * as path from "node:path";
 import { after, describe, test } from "node:test";
 import { subagentCost, type WorkflowAgentResult, type WorkflowDetails } from "../types.ts";
-import { composeWorkflowTask, formatWorkflowResult, parseFollowUps, runWorkflow, type WorkflowRunOptions } from "../workflow.ts";
+import {
+	composeWorkflowTask,
+	formatWorkflowResult,
+	parseFollowUps,
+	runWorkflow,
+	type WorktreeOps,
+	type WorkflowRunOptions,
+} from "../workflow.ts";
 import { type FakePlan, type FakeReply, makeFakeRunner, nextRunId, testAgents } from "./fake-runner.ts";
 
 const unhandled: unknown[] = [];
@@ -51,6 +60,11 @@ describe("script return value and args", () => {
 		assert.equal(formatWorkflowResult("# report"), "# report");
 		assert.equal(formatWorkflowResult({ a: 1 }), '{\n  "a": 1\n}');
 		assert.equal(formatWorkflowResult(undefined), "(no return value)");
+		const cyclic: Record<string, unknown> = {};
+		cyclic.self = cyclic;
+		assert.equal(formatWorkflowResult(cyclic), "[object Object]");
+		assert.equal(formatWorkflowResult(Object.create(null)), "{}");
+		assert.equal(formatWorkflowResult(10n), "10");
 	});
 
 	// Shallow freeze of a structured clone (per plan): nested edits stay inside the worker.
@@ -129,6 +143,57 @@ describe("logs and phases", () => {
 			details.agents.map((a) => a.phase),
 			["inner", "outer"],
 		);
+	});
+
+	test("concurrent phases end independently; later calls get no stale phase", async () => {
+		// A ends before B: B's end must not restore A as the current phase.
+		const script = `
+			const pa = phase("A", () => agent("a"));
+			const pb = phase("B", () => agent("b"));
+			await Promise.all([pa, pb]);
+			return (await agent("after")).phase ?? null;`;
+		const plan: FakePlan = (spec) => ({ delayMs: spec.task.startsWith("a\n") ? 5 : 40 });
+		const { details, result } = await run(script, plan).outcome;
+		assertDone(details);
+		assert.equal(result, null);
+		assert.deepEqual(
+			details.phases.map((p) => [p.name, p.status, p.spawned, p.done]),
+			[
+				["A", "done", 1, 1],
+				["B", "done", 1, 1],
+			],
+		);
+		assert.deepEqual(
+			details.agents.map((a) => [a.phase, a.phaseIndex]),
+			[
+				["A", 0],
+				["B", 1],
+				[undefined, undefined],
+			],
+		);
+	});
+
+	test("same-named concurrent phases are tracked separately", async () => {
+		const script = `await parallel([1, 2], (i) => phase("p", () => agent("x" + i))); return 1;`;
+		const { details } = await run(script, { delayMs: 5 }).outcome;
+		assertDone(details);
+		assert.deepEqual(
+			details.phases.map((p) => [p.name, p.status, p.done]),
+			[
+				["p", "done", 1],
+				["p", "done", 1],
+			],
+		);
+		assert.deepEqual(details.agents.map((a) => a.phaseIndex).sort(), [0, 1]);
+	});
+
+	test("a throwing onProgress does not stall the run", async () => {
+		const { details } = await run(`log("x"); await agent("a"); return 1;`, {}, {
+			onProgress: () => {
+				throw new Error("render boom");
+			},
+		}).outcome;
+		assertDone(details);
 	});
 
 	test("onProgress receives running snapshots and the final state", async () => {
@@ -247,6 +312,29 @@ describe("failures come back as values", () => {
 		assert.equal(fake.specs.length, 0);
 	});
 
+	test("a schema the validator cannot evaluate fails the call without spawning", async () => {
+		const { fake, outcome } = run(`return await agent("x", { schema: { type: "string", pattern: "(" } });`);
+		const { details, result } = await outcome;
+		assertDone(details);
+		const r = result as WorkflowAgentResult;
+		assert.equal(r.ok, false);
+		assert.equal(r.reason, "error");
+		assert.match(r.error ?? "", /invalid schema: schema could not be evaluated/);
+		assert.equal(fake.specs.length, 0);
+		assert.equal(details.spawned, 0);
+	});
+
+	test("an invalid nested pattern is rejected without spawning", async () => {
+		const { fake, outcome } = run(
+			`return await agent("x", { schema: { type: "object", properties: { x: { type: "string", pattern: "(" } } } });`,
+		);
+		const { result } = await outcome;
+		const r = result as WorkflowAgentResult;
+		assert.equal(r.reason, "error");
+		assert.match(r.error ?? "", /invalid pattern/);
+		assert.equal(fake.specs.length, 0);
+	});
+
 	test("agent() misuse throws in the script", async () => {
 		const { details } = await run(`await agent(42);`).outcome;
 		assert.equal(details.status, "failed");
@@ -278,6 +366,18 @@ describe("timeout", () => {
 		assert.ok(Date.now() - started < 450, "did not wait for the child's full delay");
 	});
 
+	test("one budget spans schema retries", async () => {
+		const schema = `{ type: "object", required: ["n"] }`;
+		const { fake, outcome } = run(`return await agent("n?", { schema: ${schema}, timeout: 150 });`, { output: "not json", delayMs: 60 });
+		const { details, result } = await outcome;
+		assertDone(details);
+		const r = result as WorkflowAgentResult;
+		assert.equal(r.reason, "timeout");
+		assert.ok(fake.specs.length >= 2 && fake.specs.length < 4, `attempts: ${fake.specs.length}`);
+		assert.equal(r.attempts, fake.specs.length);
+		assert.equal(details.results.length, fake.specs.length);
+	});
+
 	test("a timeout that does not fire leaves the call ok", async () => {
 		const { details, result } = await run(`return (await agent("fast", { timeout: 5000 })).ok;`, { delayMs: 5 }).outcome;
 		assertDone(details);
@@ -293,6 +393,7 @@ describe("abort", () => {
 			return "unreachable";`;
 		const { fake, outcome } = run(script, { delayMs: 30_000 }, { signal: ac.signal, concurrency: 3 });
 		await fake.waitForCalls(3);
+		await new Promise((r) => setTimeout(r, 20)); // let the queued calls' messages arrive
 		const t0 = Date.now();
 		ac.abort();
 		const { details, result } = await outcome;
@@ -304,10 +405,46 @@ describe("abort", () => {
 		assert.ok(fake.specs.every((s) => s.signal?.aborted));
 		assert.equal(fake.inFlight, 0);
 		assert.equal(fake.aborted, 3);
-		assert.ok(details.agents.every((a) => a.status === "failed" || a.status === "queued"));
+		assert.equal(details.agents.length, 6);
+		assert.deepEqual(
+			details.agents.filter((a) => a.status === "queued" || a.status === "running"),
+			[],
+			"every row settled",
+		);
+		assert.ok(details.agents.every((a) => a.status === "failed" && a.reason === "aborted"));
 		// give stray promise rejections a chance to surface
 		await new Promise((r) => setTimeout(r, 50));
 		assert.deepEqual(unhandled, []);
+	});
+
+	test("abort inside a phase: rows settled, phase closed", async () => {
+		const ac = new AbortController();
+		const { fake, outcome } = run(`await phase("P", () => parallel([agent("a"), agent("b")])); return 1;`, { delayMs: 30_000 }, {
+			signal: ac.signal,
+			concurrency: 1,
+		});
+		await fake.waitForCalls(1);
+		await new Promise((r) => setTimeout(r, 20)); // let the queued call's message arrive
+		ac.abort();
+		const { details } = await outcome;
+		assert.equal(details.status, "aborted");
+		assert.deepEqual(
+			details.agents.map((a) => a.status),
+			["failed", "failed"],
+		);
+		assert.equal(details.phases[0].status, "done");
+		assert.ok(details.phases[0].endedAt !== undefined);
+	});
+
+	test("runaway CPU-bound script is stopped by abort", async () => {
+		const ac = new AbortController();
+		const { outcome } = run(`log("spinning"); while (true) {}`, {}, { signal: ac.signal });
+		await new Promise((r) => setTimeout(r, 100));
+		const t0 = Date.now();
+		ac.abort();
+		const { details } = await outcome;
+		assert.equal(details.status, "aborted");
+		assert.ok(Date.now() - t0 < 2000, `stopped in ${Date.now() - t0} ms`);
 	});
 
 	test("already-aborted signal finishes immediately without running the script", async () => {
@@ -431,7 +568,31 @@ describe("script errors", () => {
 	test("non-serializable return → failed mentioning serialization", async () => {
 		const { details } = await run(`return { f: () => 1 };`).outcome;
 		assert.equal(details.status, "failed");
-		assert.match(details.error ?? "", /serialized/);
+		assert.match(details.error ?? "", /not JSON-serializable: function/);
+	});
+
+	for (const [label, expr, pattern] of [
+		["cycle", "(() => { const o = {}; o.self = o; return o; })()", /circular/i],
+		["BigInt", "{ n: 10n }", /bigint at key "n"/],
+		["Map", "new Map([[1, 2]])", /Map/],
+		["nested Set", "{ list: [new Set()] }", /Set at key "0"/],
+		["NaN", "{ n: NaN }", /NaN at key "n"/],
+	] as const) {
+		test(`unserializable return (${label}) → failed, results and spend kept`, async () => {
+			const { details, result } = await run(`await agent("a"); return ${expr};`, { cost: 0.5 }).outcome;
+			assert.equal(details.status, "failed");
+			assert.equal(result, undefined);
+			assert.match(details.error ?? "", /workflow returned a value that is not JSON-serializable/);
+			assert.match(details.error ?? "", pattern);
+			assert.equal(details.results.length, 1);
+			assert.equal(subagentCost(details), 0.5);
+		});
+	}
+
+	test("return values go through JSON (Date → ISO string, undefined fields dropped)", async () => {
+		const { details, result } = await run(`return { d: new Date(0), u: undefined, n: null };`).outcome;
+		assertDone(details);
+		assert.deepEqual(result, { d: "1970-01-01T00:00:00.000Z", n: null });
 	});
 
 	test("sandbox has no require/process/setTimeout", async () => {
@@ -509,5 +670,104 @@ describe("parallel and pipeline", () => {
 		assertDone(details);
 		assert.equal(result, "START:0!:1");
 		assert.equal(fake.specs.length, 1);
+	});
+});
+
+describe("worktree cleanup and setup bounds (injected ops)", () => {
+	/** Fake worktree ops that make real directories under the run dir; `fail` makes cleanup throw. */
+	function fakeOps(opts: { fail?: boolean; setupDelayMs?: number } = {}) {
+		const removed: string[] = [];
+		let runDir: string | undefined;
+		const ops: Partial<WorktreeOps> = {
+			getRepoRoot: async () => "/nonexistent-repo",
+			createIsolatedWorktree: async (_root, dir, index) => {
+				runDir = dir;
+				if (opts.setupDelayMs) await new Promise((r) => setTimeout(r, opts.setupDelayMs));
+				const wt = path.join(dir, `wt-${index}`);
+				fs.mkdirSync(wt, { recursive: true });
+				return { path: wt, baseCommit: "base" };
+			},
+			captureWorktreePatch: async () => "PATCH",
+			removeWorktree: async (_root, wtPath) => {
+				removed.push(wtPath);
+				if (opts.fail) throw new Error("rm failed");
+				fs.rmSync(wtPath, { recursive: true, force: true });
+			},
+			// Synchronous throw: must not escape either.
+			sweepRunDir: ((_root: string | null, dir: string) => {
+				if (opts.fail) throw new Error("sweep failed");
+				fs.rmSync(dir, { recursive: true, force: true });
+				return Promise.resolve();
+			}) as WorktreeOps["sweepRunDir"],
+		};
+		return {
+			ops,
+			removed,
+			cleanup: () => runDir && fs.rmSync(runDir, { recursive: true, force: true }),
+			get runDir() {
+				return runDir;
+			},
+		};
+	}
+
+	test("failing removeWorktree/sweep do not override the call's result", async () => {
+		const wt = fakeOps({ fail: true });
+		try {
+			const { fake, outcome } = run(`return await agent("x", { isolation: "worktree" });`, {}, { worktrees: wt.ops });
+			const { details, result } = await outcome;
+			assertDone(details);
+			const r = result as WorkflowAgentResult;
+			assert.equal(r.ok, true, r.error);
+			assert.equal(r.patch, "PATCH");
+			assert.equal(wt.removed.length, 1);
+			assert.equal(fake.specs.length, 1);
+			assert.ok(path.basename(wt.runDir ?? "").startsWith("pi-workflow-"), `run dir ${wt.runDir}`);
+		} finally {
+			wt.cleanup();
+		}
+	});
+
+	test("timeout during worktree setup: worktree removed, no child spawned", async () => {
+		const wt = fakeOps({ setupDelayMs: 100 });
+		try {
+			const { fake, outcome } = run(`return await agent("x", { isolation: "worktree", timeout: 20 });`, {}, { worktrees: wt.ops });
+			const { details, result } = await outcome;
+			assertDone(details);
+			const r = result as WorkflowAgentResult;
+			assert.equal(r.reason, "timeout");
+			assert.equal(fake.specs.length, 0);
+			assert.equal(details.spawned, 0);
+			assert.equal(wt.removed.length, 1);
+			assert.equal(fs.existsSync(wt.runDir ?? ""), false, "run dir swept");
+		} finally {
+			wt.cleanup();
+		}
+	});
+
+	test("abort while queued behind git: setup never starts", async () => {
+		const wt = fakeOps({ setupDelayMs: 100 });
+		let setups = 0;
+		const create = wt.ops.createIsolatedWorktree!;
+		wt.ops.createIsolatedWorktree = (...a) => {
+			setups++;
+			return create(...a);
+		};
+		const ac = new AbortController();
+		try {
+			const { fake, outcome } = run(
+				`await parallel([1, 2], (i) => agent("x" + i, { isolation: "worktree" })); return 1;`,
+				{},
+				{ worktrees: wt.ops, signal: ac.signal },
+			);
+			await new Promise((r) => setTimeout(r, 30));
+			ac.abort();
+			const { details } = await outcome;
+			assert.equal(details.status, "aborted");
+			assert.equal(setups, 1, "second setup skipped");
+			assert.equal(fake.specs.length, 0);
+			assert.equal(wt.removed.length, 1);
+		} finally {
+			wt.cleanup();
+		}
 	});
 });

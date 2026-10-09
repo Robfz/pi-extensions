@@ -53,7 +53,7 @@ export type SubagentDetails = LegacyDetails | WorkflowDetails;
 export const DEFAULT_WORKFLOW_AGENT = "general";
 export const DEFAULT_WORKFLOW_CONCURRENCY = 16;
 /** Forced on every workflow child: children never spawn agents themselves. */
-export const WORKFLOW_CHILD_EXCLUDED_TOOLS = ["spawn", "subagent"];
+export const WORKFLOW_CHILD_EXCLUDED_TOOLS = [TOOL_NAME, "subagent"];
 
 /** `agent()` call parameters sent from the worker to the host. */
 export interface WorkflowAgentCall {
@@ -66,8 +66,10 @@ export interface WorkflowAgentCall {
 	timeout?: number;
 	isolation?: "worktree";
 	label?: string;
-	/** Current phase name, filled in by the worker. */
+	/** Innermost active phase name, filled in by the worker. */
 	phase?: string;
+	/** Worker-assigned id of that phase (matches the `phase` messages). */
+	phaseId?: number;
 }
 
 export type WorkflowFailReason = "error" | "timeout" | "aborted" | "schema" | "unknown-agent" | "isolation";
@@ -129,7 +131,7 @@ export interface WorkflowPhase {
 	failed: number;
 }
 
-export type WorkflowStatus = "pending-approval" | "canceled" | "running" | "done" | "failed" | "aborted";
+export type WorkflowStatus = "canceled" | "running" | "done" | "failed" | "aborted";
 
 export interface WorkflowDetails {
 	mode: "workflow";
@@ -164,8 +166,9 @@ export type WorkerToHost =
 	| { type: "call"; id: number; method: "agent"; params: WorkflowAgentCall }
 	| { type: "call"; id: number; method: "applyPatch"; params: { patch: string } }
 	| { type: "log"; text: string }
-	| { type: "phase"; name: string; event: "start" | "end" }
-	| { type: "done"; result: unknown }
+	| { type: "phase"; id: number; name: string; event: "start" | "end" }
+	/** `json` is the JSON text of the script's return value; absent when it returned undefined. */
+	| { type: "done"; json?: string }
 	| { type: "error"; message: string; stack?: string };
 
 /** Published on `pi.events` channel "subagent:spend" (see SUBAGENT_SPEND_CHANNEL). */
@@ -177,6 +180,10 @@ export interface SubagentSpend {
 }
 
 export type DisplayItem = { type: "text"; text: string } | { type: "toolCall"; name: string; args: Record<string, any> };
+
+export function errorMessage(err: unknown): string {
+	return err instanceof Error ? err.message : String(err);
+}
 
 export function emptyUsage(): UsageStats {
 	return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 };

@@ -9,7 +9,15 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, before, describe, test } from "node:test";
-import { approvalsPath, isAutoApproved, projectKey, setAutoApproved } from "../approvals.ts";
+import {
+	approvalsPath,
+	decideWorkflowGate,
+	describeProjectAgents,
+	isAutoApproved,
+	projectKey,
+	setAutoApproved,
+	type WorkflowGateInput,
+} from "../approvals.ts";
 
 const agentDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pi-approvals-test-")));
 const prevAgentDir = process.env.PI_CODING_AGENT_DIR;
@@ -81,5 +89,67 @@ describe("approvals", () => {
 		execFileSync("git", ["init", "-q"], { cwd: repo });
 		assert.equal(projectKey(path.join(repo, "deep", "er")), repo);
 		assert.equal(projectKey(repo), repo);
+	});
+});
+
+describe("decideWorkflowGate", () => {
+	const base: WorkflowGateInput = {
+		name: "review",
+		hasUI: false,
+		autoApproved: false,
+		source: "user",
+		agentScope: "user",
+		projectAgents: [],
+	};
+	const gate = (extra: Partial<WorkflowGateInput>) => decideWorkflowGate({ ...base, ...extra });
+	const reviewer = { name: "reviewer", overridesUser: true };
+	const local = { name: "local-helper", overridesUser: false };
+
+	test("headless: only a user workflow with agentScope user runs", () => {
+		assert.deepEqual(gate({}), { action: "run" });
+		for (const extra of [
+			{ source: "inline" as const },
+			{ source: "project" as const, agentScope: "both" as const },
+			{ agentScope: "both" as const },
+			{ agentScope: "both" as const, projectAgents: [reviewer] },
+			{ agentScope: "project" as const },
+		]) {
+			const d = gate(extra);
+			assert.equal(d.action, "refuse", JSON.stringify(extra));
+			assert.ok(d.action === "refuse" && /interactive approval/.test(d.message));
+		}
+	});
+
+	test("headless refusal names the project agents it would use", () => {
+		const d = gate({ agentScope: "both", projectAgents: [reviewer], projectAgentsDir: "/repo/.pi/agents" });
+		assert.ok(d.action === "refuse");
+		assert.match(d.message, /agentScope "both"/);
+		assert.match(d.message, /reviewer \(overrides user agent reviewer\)/);
+		assert.match(d.message, /\/repo\/\.pi\/agents/);
+	});
+
+	test("auto-approved project: headless runs anything, UI notifies (listing project agents)", () => {
+		for (const source of ["inline", "user", "project"] as const) {
+			assert.deepEqual(gate({ autoApproved: true, source, agentScope: "both", projectAgents: [reviewer] }), { action: "run" });
+		}
+		const plain = gate({ autoApproved: true, hasUI: true });
+		assert.ok(plain.action === "notify");
+		assert.match(plain.message, /auto-approved/);
+		assert.doesNotMatch(plain.message, /Project agents/);
+		const withAgents = gate({ autoApproved: true, hasUI: true, agentScope: "both", projectAgents: [reviewer, local] });
+		assert.ok(withAgents.action === "notify");
+		assert.match(withAgents.message, /reviewer \(overrides user agent reviewer\), local-helper/);
+	});
+
+	test("UI without auto-approval always asks; project agents go into the dialog", () => {
+		for (const source of ["inline", "user", "project"] as const) assert.deepEqual(gate({ hasUI: true, source }), { action: "confirm" });
+		const d = gate({ hasUI: true, agentScope: "both", projectAgents: [reviewer] });
+		assert.ok(d.action === "confirm");
+		assert.match(d.projectAgentsNote ?? "", /reviewer \(overrides user agent reviewer\)/);
+	});
+
+	test("describeProjectAgents", () => {
+		assert.equal(describeProjectAgents([]), undefined);
+		assert.equal(describeProjectAgents([local], "/r/.pi/agents"), "Project agents (repo-controlled, from /r/.pi/agents): local-helper");
 	});
 });

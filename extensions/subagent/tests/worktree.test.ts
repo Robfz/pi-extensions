@@ -180,11 +180,12 @@ describe("isolated worktrees", { skip }, () => {
 });
 
 describe("runWorkflow with isolation: worktree", { skip }, () => {
+	/** Starts a run; `runDir()` is the run dir the runtime created (known after the first worktree). */
 	function opts(repo: string, plan: FakePlan | FakeReply, extra: Partial<WorkflowRunOptions> = {}) {
 		const fake = makeFakeRunner(plan);
-		const runId = nextRunId();
+		let seenRunDir: string | undefined;
 		const outcome = runWorkflow({
-			runId,
+			runId: nextRunId(),
 			name: "inline",
 			source: "inline",
 			script: "",
@@ -194,9 +195,19 @@ describe("runWorkflow with isolation: worktree", { skip }, () => {
 			agentScope: "user",
 			projectAgentsDir: null,
 			runner: fake.runner,
+			worktrees: {
+				createIsolatedWorktree: (root, dir, index) => {
+					seenRunDir = dir;
+					return createIsolatedWorktree(root, dir, index);
+				},
+			},
 			...extra,
 		});
-		return { fake, outcome, runDir: path.join(os.tmpdir(), `pi-workflow-${runId}`) };
+		const runDir = () => {
+			assert.ok(seenRunDir, "a worktree was requested");
+			return seenRunDir;
+		};
+		return { fake, outcome, runDir };
 	}
 
 	test("agent edits its worktree, worktree is removed before the script continues, applyPatch lands it", async () => {
@@ -231,11 +242,12 @@ describe("runWorkflow with isolation: worktree", { skip }, () => {
 		assert.match(r.patch ?? "", /sub\/made\.txt/);
 		assert.equal(check, "worktree gone");
 		assert.deepEqual(applied, { ok: true });
-		assert.ok(isolatedCwd.startsWith(runDir), `child cwd ${isolatedCwd} inside ${runDir}`);
+		assert.ok(path.basename(runDir()).startsWith("pi-workflow-"));
+		assert.ok(isolatedCwd.startsWith(runDir()), `child cwd ${isolatedCwd} inside ${runDir()}`);
 		assert.ok(isolatedCwd.endsWith(`${path.sep}sub`), "child cwd mirrors the subdirectory");
 		assert.equal(fake.specs[1].defaultCwd, cwd, "non-isolated agents run in cwd");
 		assert.equal(fs.readFileSync(path.join(repo, "sub", "made.txt"), "utf8"), "from agent\n");
-		assert.equal(fs.existsSync(runDir), false, "run dir swept");
+		assert.equal(fs.existsSync(runDir()), false, "run dir swept");
 		assert.equal(worktreeCount(repo), 1);
 		assert.equal(details.agents[0].isolated, true);
 	});
@@ -250,7 +262,7 @@ describe("runWorkflow with isolation: worktree", { skip }, () => {
 		ac.abort();
 		const { details } = await outcome;
 		assert.equal(details.status, "aborted");
-		assert.equal(fs.existsSync(runDir), false);
+		assert.equal(fs.existsSync(runDir()), false);
 		assert.equal(worktreeCount(repo), 1);
 		assert.equal(git(repo, "status", "--porcelain").trim(), "");
 	});
@@ -265,6 +277,6 @@ describe("runWorkflow with isolation: worktree", { skip }, () => {
 		assert.equal(details.status, "done", details.error);
 		assert.deepEqual(result, [false, "isolation", true]);
 		assert.equal(fake.specs.length, 1);
-		assert.equal(fs.existsSync(runDir), false);
+		assert.equal(fs.existsSync(runDir()), false);
 	});
 });

@@ -1,15 +1,26 @@
-/** runner.ts: CLI arg building and runSingleAgent's abort/SIGKILL/listener handling against a fixture child. */
+/** runner.ts: CLI arg building, pi invocation, and runSingleAgent's abort/SIGKILL/listener handling against fixture children. */
 
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { buildPiArgs, type RunSpec, runSingleAgent } from "../runner.ts";
+import { buildPiArgs, getPiInvocation, type RunSpec, runSingleAgent } from "../runner.ts";
 import { getFinalOutput } from "../types.ts";
 import { piAgent } from "./fake-runner.ts";
 
-const FIXTURE = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "stubborn-child.js");
+const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures");
+const FIXTURE = path.join(FIXTURES, "stubborn-child.js");
+const TREE_FIXTURE = path.join(FIXTURES, "tree-child.js");
+
+function isAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+}
 
 /** AbortController whose signal counts live "abort" listeners. */
 function countingAbort() {
@@ -62,6 +73,31 @@ describe("buildPiArgs", () => {
 	});
 });
 
+describe("getPiInvocation", () => {
+	const exists = (paths: string[]) => (p: string) => paths.includes(p);
+
+	test("runtime + entry script when both exist", () => {
+		const env = { execPath: "/opt/node/bin/node", script: "/opt/pi/cli.js", existsSync: exists(["/opt/node/bin/node", "/opt/pi/cli.js"]) };
+		assert.deepEqual(getPiInvocation(["-p", "x"], env), { command: "/opt/node/bin/node", args: ["/opt/pi/cli.js", "-p", "x"] });
+	});
+
+	test("runtime binary gone (e.g. node upgraded mid-session) → pi on PATH", () => {
+		const env = { execPath: "/opt/node/26.10.0/bin/node", script: "/opt/pi/cli.js", existsSync: exists(["/opt/pi/cli.js"]) };
+		assert.deepEqual(getPiInvocation(["-p"], env), { command: "pi", args: ["-p"] });
+	});
+
+	test("compiled binary without a script runs itself; generic runtime without a script → pi", () => {
+		assert.deepEqual(getPiInvocation(["-p"], { execPath: "/usr/local/bin/pi", script: undefined, existsSync: () => true }), {
+			command: "/usr/local/bin/pi",
+			args: ["-p"],
+		});
+		assert.deepEqual(getPiInvocation(["-p"], { execPath: "/usr/bin/node", script: "/gone.js", existsSync: (p) => p === "/usr/bin/node" }), {
+			command: "pi",
+			args: ["-p"],
+		});
+	});
+});
+
 describe("runSingleAgent", () => {
 	test("normal child: parses output and usage, removes its abort listener, cleans the prompt file", async () => {
 		const { ac, live } = countingAbort();
@@ -100,6 +136,38 @@ describe("runSingleAgent", () => {
 		assert.ok(elapsed < 6500, `resolved within ~6 s (took ${elapsed} ms)`);
 		assert.equal(getFinalOutput(r.messages), "stubborn hello", "partial output kept");
 		assert.equal(live.size, 0, "abort listener removed");
+	});
+
+	test("abort kills the child's whole process tree", { skip: process.platform === "win32" ? "no process groups" : false }, async () => {
+		const ac = new AbortController();
+		let grandchild = 0;
+		let started!: () => void;
+		const gotPid = new Promise<void>((r) => (started = r));
+		const promise = runSingleAgent(
+			spec({
+				signal: ac.signal,
+				piInvocation: (args) => ({ command: process.execPath, args: [TREE_FIXTURE, ...args] }),
+				onUpdate: (p) => {
+					grandchild = Number(/grandchild (\d+)/.exec(getFinalOutput(p.messages))?.[1]);
+					if (grandchild) started();
+				},
+			}),
+		);
+		await gotPid;
+		try {
+			assert.ok(isAlive(grandchild), "grandchild running before abort");
+			const t0 = Date.now();
+			ac.abort();
+			const r = await promise;
+			assert.equal(r.stopReason, "aborted");
+			assert.ok(Date.now() - t0 < 2000, "child exited on SIGTERM");
+			// The orphaned grandchild is reaped by init shortly after it dies.
+			const deadline = Date.now() + 2000;
+			while (isAlive(grandchild) && Date.now() < deadline) await new Promise((res) => setTimeout(res, 20));
+			assert.equal(isAlive(grandchild), false, "grandchild killed with the group");
+		} finally {
+			if (isAlive(grandchild)) process.kill(grandchild, "SIGKILL");
+		}
 	});
 
 	test("already-aborted signal → aborted result without spawning", async () => {

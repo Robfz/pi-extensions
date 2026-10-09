@@ -478,7 +478,7 @@ export function renderResult(
 
 // ── workflow mode ──
 
-const preview = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…` : text);
+const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…` : text);
 
 export function renderWorkflowCall(args: SubagentCallArgs, theme: Theme): Component {
 	const scope: AgentScope = args.agentScope ?? "user";
@@ -487,7 +487,7 @@ export function renderWorkflowCall(args: SubagentCallArgs, theme: Theme): Compon
 		theme.fg("accent", args.workflow || "inline") +
 		theme.fg("muted", ` [${scope}]`);
 	if (args.args && Object.keys(args.args).length > 0) {
-		text += `\n  ${theme.fg("muted", "args: ")}${theme.fg("dim", preview(JSON.stringify(args.args), 60))}`;
+		text += `\n  ${theme.fg("muted", "args: ")}${theme.fg("dim", clip(JSON.stringify(args.args), 60))}`;
 	}
 	if (args.script) text += `\n  ${theme.fg("dim", `script: ${args.script.split("\n").length} lines`)}`;
 	return new Text(text, 0, 0);
@@ -543,7 +543,7 @@ export function renderWorkflowResult(
 	const cost = subagentCost(details);
 	const duration = formatDuration((details.endedAt ?? now) - details.startedAt);
 
-	if (details.status === "canceled" || details.status === "pending-approval") {
+	if (details.status === "canceled") {
 		return new Text(
 			`${workflowIcon(details, theme)} ${theme.fg("toolTitle", theme.bold(`workflow ${details.name}`))}  ${theme.fg("muted", details.status)}`,
 			0,
@@ -570,7 +570,8 @@ export function renderWorkflowResult(
 		const inPhase = rows.filter((r) => r.phaseIndex === i);
 		const finished = inPhase.filter((r) => r.status === "done" || r.status === "failed").length;
 		const phaseFailed = inPhase.filter((r) => r.status === "failed").length;
-		const icon = p.status === "done" ? theme.fg("success", "✓") : theme.fg("warning", "…");
+		// Persisted details from an interrupted run can hold phases still marked running.
+		const icon = p.status === "running" && details.status === "running" ? theme.fg("warning", "…") : theme.fg("success", "✓");
 		let line = `${icon} ${theme.fg("accent", p.name)} ${finished}/${inPhase.length}`;
 		if (phaseFailed > 0) line += theme.fg("error", ` (${phaseFailed} failed)`);
 		return `  ${line}`;
@@ -596,7 +597,7 @@ export function renderWorkflowResult(
 		}
 		const lastLog = details.logs[details.logs.length - 1];
 		if (lastLog && details.status === "running") {
-			text += `\n  ${theme.fg("muted", "last log: ")}${theme.fg("dim", preview(lastLog.split("\n")[0], 120))}`;
+			text += `\n  ${theme.fg("muted", "last log: ")}${theme.fg("dim", clip(lastLog.split("\n")[0], 120))}`;
 		}
 		if (!body) {
 			if (rows.length > 0 || details.logs.length > 0) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
@@ -625,7 +626,7 @@ export function renderWorkflowResult(
 			if (r.cost > 0) parts.push(theme.fg("dim", `$${r.cost.toFixed(4)}`));
 			if (r.status === "failed") {
 				const why = [r.reason, r.error?.split("\n")[0]].filter(Boolean).join(": ");
-				if (why) parts.push(theme.fg("error", preview(why, 80)));
+				if (why) parts.push(theme.fg("error", clip(why, 80)));
 			}
 			return `  ${parts.join(" ")}`;
 		});

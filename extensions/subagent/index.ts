@@ -29,12 +29,20 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
-import { approvalsPath, isAutoApproved, projectKey, setAutoApproved } from "./approvals.ts";
+import {
+	approvalsPath,
+	decideWorkflowGate,
+	isAutoApproved,
+	type ProjectAgentRef,
+	projectKey,
+	setAutoApproved,
+} from "./approvals.ts";
 import { renderCall, renderResult } from "./render.ts";
 import { mapWithConcurrencyLimit, runSingleAgent } from "./runner.ts";
 import { discoverWorkflows, resolveWorkflow } from "./saved-workflows.ts";
 import {
 	emptyUsage,
+	errorMessage,
 	getFinalOutput,
 	getResultOutput,
 	isFailedResult,
@@ -98,7 +106,7 @@ const SubagentParams = Type.Object({
 
 type WorkflowApproval = { ok: true } | { ok: false; text: string; isError: boolean };
 
-/** Asks the user to approve a workflow run; persisted per-project auto-approval skips the dialog. */
+/** Applies decideWorkflowGate: may notify, show the run/view/auto-approve dialog, or refuse. */
 async function approveWorkflow(
 	ctx: ExtensionContext,
 	opts: {
@@ -109,26 +117,45 @@ async function approveWorkflow(
 		script: string;
 		agentCount: number;
 		agentScope: AgentScope;
+		agents: AgentConfig[];
+		projectAgentsDir: string | null;
 	},
 ): Promise<WorkflowApproval> {
 	const key = projectKey(ctx.cwd);
-	if (isAutoApproved(key)) {
-		if (ctx.hasUI) ctx.ui.notify(`Workflow "${opts.name}" auto-approved for this project`, "info");
-		return { ok: true };
+	const projectAgents: ProjectAgentRef[] = [];
+	if (opts.agentScope !== "user") {
+		const userNames = new Set(discoverAgents(ctx.cwd, "user").agents.map((a) => a.name));
+		for (const a of opts.agents) {
+			if (a.source === "project") projectAgents.push({ name: a.name, overridesUser: userNames.has(a.name) });
+		}
 	}
-	if (!ctx.hasUI) {
-		if (opts.source !== "inline") return { ok: true };
-		return {
-			ok: false,
-			isError: true,
-			text:
-				'Inline workflow scripts need interactive approval. Start a TUI session and choose "Auto-approve for this project", ' +
-				`or save the script as .pi/workflows/<name>.js and call spawn({workflow: "<name>", agentScope: "both"}). (Auto-approvals live in ${approvalsPath()}.)`,
-		};
+	const decision = decideWorkflowGate({
+		name: opts.name,
+		hasUI: ctx.hasUI,
+		autoApproved: isAutoApproved(key),
+		source: opts.source,
+		agentScope: opts.agentScope,
+		projectAgents,
+		projectAgentsDir: opts.projectAgentsDir,
+	});
+	switch (decision.action) {
+		case "run":
+			return { ok: true };
+		case "notify":
+			ctx.ui.notify(decision.message, "info");
+			return { ok: true };
+		case "refuse":
+			return {
+				ok: false,
+				isError: true,
+				text: `${decision.message}\n(Auto-approvals live in ${approvalsPath()}.)`,
+			};
 	}
 	const lines = opts.script.split("\n").length;
 	const from = opts.filePath ? ` from ${opts.filePath}` : "";
-	const title = `Run workflow "${opts.name}"${from}? (${lines} lines, ${opts.agentCount} agents available, scope ${opts.agentScope})`;
+	const title =
+		`Run workflow "${opts.name}"${from}? (${lines} lines, ${opts.agentCount} agents available, scope ${opts.agentScope})` +
+		(decision.projectAgentsNote ? `\n${decision.projectAgentsNote}\nOnly continue for trusted repositories.` : "");
 	const RUN = "Run";
 	const VIEW = "View script";
 	const AUTO = "Auto-approve for this project and run";
@@ -315,6 +342,8 @@ export default function (pi: ExtensionAPI) {
 					script,
 					agentCount: agents.filter((a) => a.runner === "pi").length,
 					agentScope,
+					agents,
+					projectAgentsDir: discovery.projectAgentsDir,
 				});
 				if (!approval.ok) {
 					return {
@@ -341,38 +370,47 @@ export default function (pi: ExtensionAPI) {
 						: undefined,
 				});
 				const d = outcome.details;
-				const cost = subagentCost(d).toFixed(4);
-				if (d.status === "done") {
+				// Never throw from here: a thrown execute loses `details` and with it the run's spend.
+				try {
+					const cost = subagentCost(d).toFixed(4);
+					if (d.status === "done") {
+						return {
+							content: [
+								{
+									type: "text",
+									text: `Workflow "${name}" finished: ${d.spawned} agents, $${cost}\n\n${formatWorkflowResult(outcome.result)}`,
+								},
+							],
+							details: d,
+						};
+					}
+					if (d.status === "aborted") {
+						return {
+							content: [{ type: "text", text: `Workflow aborted after ${d.spawned} agents ($${cost})` }],
+							details: d,
+							isError: true,
+						};
+					}
+					const logTail = d.logs.slice(-20);
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Workflow "${name}" finished: ${d.spawned} agents, $${cost}\n\n${formatWorkflowResult(outcome.result)}`,
+								text:
+									`Workflow "${name}" failed: ${d.error ?? "unknown error"}` +
+									(logTail.length > 0 ? `\n\nLast logs:\n${logTail.join("\n")}` : ""),
 							},
 						],
 						details: d,
+						isError: true,
 					};
-				}
-				if (d.status === "aborted") {
+				} catch (err) {
 					return {
-						content: [{ type: "text", text: `Workflow aborted after ${d.spawned} agents ($${cost})` }],
+						content: [{ type: "text", text: `Workflow "${name}" ended (${d.status}) but its result could not be formatted: ${errorMessage(err)}` }],
 						details: d,
 						isError: true,
 					};
 				}
-				const logTail = d.logs.slice(-20);
-				return {
-					content: [
-						{
-							type: "text",
-							text:
-								`Workflow "${name}" failed: ${d.error ?? "unknown error"}` +
-								(logTail.length > 0 ? `\n\nLast logs:\n${logTail.join("\n")}` : ""),
-						},
-					],
-					details: d,
-					isError: true,
-				};
 			}
 
 			if ((agentScope === "project" || agentScope === "both") && confirmProjectAgents && ctx.hasUI) {

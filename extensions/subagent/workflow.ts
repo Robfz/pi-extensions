@@ -5,6 +5,7 @@
  * Does not import pi packages at runtime, so tests can load it with a fake runner and fake git ops.
  */
 
+import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Worker } from "node:worker_threads";
@@ -15,6 +16,7 @@ import {
 	DEFAULT_WORKFLOW_AGENT,
 	DEFAULT_WORKFLOW_CONCURRENCY,
 	emptyUsage,
+	errorMessage,
 	getFinalOutput,
 	getResultOutput,
 	isFailedResult,
@@ -28,19 +30,21 @@ import {
 	type WorkflowDetails,
 	type WorkflowFailReason,
 	type WorkflowFollowUp,
-	type WorkflowPhase,
 	type WorkflowStatus,
 } from "./types.ts";
 import { WORKFLOW_WORKER_SOURCE } from "./workflow-worker-source.ts";
-import { extractJson, MAX_SCHEMA_RETRIES, schemaInstruction, schemaRetrySuffix, validateAgainst } from "./schema.ts";
+import {
+	extractJson,
+	MAX_SCHEMA_RETRIES,
+	schemaInstruction,
+	schemaProblem,
+	schemaRetrySuffix,
+	validateAgainst,
+} from "./schema.ts";
 import * as worktree from "./worktree.ts";
 import type { ApplyPatchResult, IsolatedWorktree } from "./worktree.ts";
 
-export { WORKFLOW_CHILD_EXCLUDED_TOOLS } from "./types.ts";
-
 export type ChildRunner = (spec: RunSpec) => Promise<SingleResult>;
-
-export type { ApplyPatchResult } from "./worktree.ts";
 
 /** Git operations behind `isolation: "worktree"`; injectable for tests. */
 export type WorktreeOps = Pick<
@@ -81,10 +85,19 @@ const MAX_LOG_CHARS = 2048;
 const PROGRESS_INTERVAL_MS = 250;
 const WORKER_HEAP_MB = 1024;
 
+/** Model-facing text for a script's return value; never throws. */
 export function formatWorkflowResult(result: unknown): string {
 	if (typeof result === "string") return result;
 	if (result === undefined) return "(no return value)";
-	return JSON.stringify(result, null, 2) ?? String(result);
+	try {
+		return JSON.stringify(result, null, 2) ?? String(result);
+	} catch {
+		try {
+			return String(result);
+		} catch {
+			return "(unprintable return value)";
+		}
+	}
 }
 
 const FOLLOWUPS_FENCE = /```followups[ \t]*\r?\n([\s\S]*?)\r?\n```\s*$/;
@@ -164,8 +177,26 @@ function addUsage(into: UsageStats, from: UsageStats): void {
 /** setTimeout's ceiling; larger delays would fire immediately. */
 const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 
-function errorMessage(err: unknown): string {
-	return err instanceof Error ? err.message : String(err);
+type CallIdentity = Pick<WorkflowAgentResult, "agent" | "label" | "phase">;
+
+function failedResult(
+	who: CallIdentity,
+	reason: WorkflowFailReason,
+	error: string,
+	extra?: Partial<WorkflowAgentResult>,
+): WorkflowAgentResult {
+	return {
+		ok: false,
+		...who,
+		output: "",
+		error,
+		reason,
+		followUps: [],
+		attempts: 0,
+		usage: emptyUsage(),
+		durationMs: 0,
+		...extra,
+	};
 }
 
 function errorLocation(stack: string | undefined): string | undefined {
@@ -183,8 +214,9 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 		removeWorktree: opts.worktrees?.removeWorktree ?? worktree.removeWorktree,
 		sweepRunDir: opts.worktrees?.sweepRunDir ?? worktree.sweepRunDir,
 	};
-	const runDir = path.join(os.tmpdir(), `pi-workflow-${opts.runId}`);
-	let runDirUsed = false;
+	/** Parent of the run's worktrees, created on first use. */
+	let runDir: string | undefined;
+	const ensureRunDir = () => (runDir ??= fs.mkdtempSync(path.join(os.tmpdir(), "pi-workflow-")));
 	let repoRootPromise: Promise<string | null> | undefined;
 	/** Git toplevel of `cwd`, resolved on first use so workflows without isolation/applyPatch never run git. */
 	const getRepoRoot = () => (repoRootPromise ??= wtOps.getRepoRoot(opts.cwd).catch(() => null));
@@ -241,10 +273,18 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 		logs: [...details.logs],
 		results: [...details.results],
 	});
+	/** Calls onProgress; a throwing callback is ignored so it cannot stall the run. */
+	const report = () => {
+		try {
+			opts.onProgress?.(snapshot());
+		} catch {
+			/* renderer error */
+		}
+	};
 	const emitNow = () => {
 		clearTimeout(emitTimer);
 		emitTimer = undefined;
-		if (!finished) opts.onProgress?.(snapshot());
+		if (!finished) report();
 	};
 	const emitThrottled = () => {
 		if (emitTimer || finished) return;
@@ -261,38 +301,30 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 	};
 
 	// ── agent calls ──
-	const failedResult = (call: WorkflowAgentCall, agent: string, reason: WorkflowFailReason, error: string): WorkflowAgentResult => ({
-		ok: false,
-		agent,
-		label: call.label,
-		phase: call.phase,
-		output: "",
-		error,
-		reason,
-		followUps: [],
-		attempts: 0,
-		usage: emptyUsage(),
-		durationMs: 0,
-	});
-
 	/** Checks a call before it takes a slot; returns a failure result when it cannot run. */
-	const precheck = (call: WorkflowAgentCall, agentName: string): WorkflowAgentResult | undefined => {
+	const precheck = (call: WorkflowAgentCall, who: CallIdentity): WorkflowAgentResult | undefined => {
+		const agentName = who.agent;
+		if (!call.prompt.trim()) return failedResult(who, "error", "agent(): prompt must be a non-empty string");
 		const agent = opts.agents.find((a) => a.name === agentName);
 		if (!agent) {
-			return failedResult(call, agentName, "unknown-agent", `Unknown agent "${agentName}". Available: ${piAgentNames.join(", ") || "none"}`);
+			return failedResult(who, "unknown-agent", `Unknown agent "${agentName}". Available: ${piAgentNames.join(", ") || "none"}`);
 		}
 		if (agent.runner !== "pi") {
-			return failedResult(call, agentName, "unknown-agent", `Agent "${agentName}" runs on ${agent.runner}; workflows run pi agents only`);
+			return failedResult(who, "unknown-agent", `Agent "${agentName}" runs on ${agent.runner}; workflows run pi agents only`);
 		}
 		const { schema, timeout, isolation } = call;
-		if (schema !== undefined && (schema === null || typeof schema !== "object" || Array.isArray(schema))) {
-			return failedResult(call, agentName, "error", "agent(): schema must be a JSON Schema object");
+		if (schema !== undefined) {
+			if (schema === null || typeof schema !== "object" || Array.isArray(schema)) {
+				return failedResult(who, "error", "agent(): schema must be a JSON Schema object");
+			}
+			const problem = schemaProblem(schema);
+			if (problem) return failedResult(who, "error", `agent(): invalid schema: ${problem}`);
 		}
 		if (timeout !== undefined && !(typeof timeout === "number" && Number.isFinite(timeout) && timeout > 0)) {
-			return failedResult(call, agentName, "error", "agent(): timeout must be a positive number of milliseconds");
+			return failedResult(who, "error", "agent(): timeout must be a positive number of milliseconds");
 		}
 		if (isolation !== undefined && isolation !== "worktree") {
-			return failedResult(call, agentName, "isolation", `agent(): unsupported isolation ${JSON.stringify(isolation)}; use "worktree"`);
+			return failedResult(who, "isolation", `agent(): unsupported isolation ${JSON.stringify(isolation)}; use "worktree"`);
 		}
 		return undefined;
 	};
@@ -334,31 +366,22 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 
 	/**
 	 * Runs one `agent()` call inside its concurrency slot: optional worktree, then up to
-	 * 1 + MAX_SCHEMA_RETRIES child attempts sharing one timeout budget, then the worktree patch.
+	 * 1 + MAX_SCHEMA_RETRIES child attempts, then the worktree patch.
 	 * `onSpawn` fires before the first child process starts.
 	 */
 	const runCall = async (call: WorkflowAgentCall, row: WorkflowAgentRow, onSpawn: () => void): Promise<WorkflowAgentResult> => {
 		const startedAt = Date.now();
 		const usage = emptyUsage();
-		const base = { agent: row.agent, label: call.label, phase: call.phase };
-		const fail = (reason: WorkflowFailReason, error: string, extra?: Partial<WorkflowAgentResult>): WorkflowAgentResult => ({
-			ok: false,
-			...base,
-			output: "",
-			error,
-			reason,
-			followUps: [],
-			attempts: row.attempts,
-			usage,
-			durationMs: Date.now() - startedAt,
-			...extra,
-		});
+		const base: CallIdentity = { agent: row.agent, label: call.label, phase: call.phase };
+		const fail = (reason: WorkflowFailReason, error: string, extra?: Partial<WorkflowAgentResult>): WorkflowAgentResult =>
+			failedResult(base, reason, error, { attempts: row.attempts, usage, durationMs: Date.now() - startedAt, ...extra });
 
 		const ctrl = new AbortController();
 		const onRunAbort = () => ctrl.abort();
 		runAbort.signal.addEventListener("abort", onRunAbort, { once: true });
 		if (runAbort.signal.aborted) ctrl.abort();
 		let timedOut = false;
+		// One budget for the whole call (worktree setup, every attempt, patch capture), counted from slot acquisition.
 		const timer =
 			call.timeout !== undefined
 				? setTimeout(
@@ -379,15 +402,20 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 		try {
 			let cwd = opts.cwd;
 			if (call.isolation === "worktree") {
+				if (ctrl.signal.aborted) return fail(stopped().reason, stopped().error);
 				repoRoot = await getRepoRoot();
 				if (!repoRoot) return fail("isolation", "isolation \"worktree\" needs a git repository; cwd is not inside one");
 				const root = repoRoot;
-				runDirUsed = true;
 				try {
-					wt = await serialGit(() => wtOps.createIsolatedWorktree(root, runDir, row.id));
+					// Skipped when the call was aborted or timed out while queued behind other git operations.
+					wt = await serialGit(async () =>
+						ctrl.signal.aborted ? undefined : wtOps.createIsolatedWorktree(root, ensureRunDir(), row.id),
+					);
 				} catch (err) {
 					return fail("isolation", `could not create worktree: ${errorMessage(err)}`);
 				}
+				// Setup is not interruptible; an abort or timeout during it ends the call here (finally removes wt).
+				if (!wt || ctrl.signal.aborted) return fail(stopped().reason, stopped().error);
 				cwd = worktree.worktreeCwd(root, wt.path, opts.cwd);
 			}
 
@@ -441,7 +469,8 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 			if (wt && repoRoot) {
 				const root = repoRoot;
 				const wtPath = wt.path;
-				await serialGit(() => wtOps.removeWorktree(root, wtPath));
+				// A cleanup failure must not replace the call's result; finish() sweeps the run dir.
+				await serialGit(() => wtOps.removeWorktree(root, wtPath)).catch(() => undefined);
 			}
 		}
 	};
@@ -449,8 +478,9 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 	const handleAgent = async (id: number, raw: WorkflowAgentCall): Promise<void> => {
 		const call: WorkflowAgentCall = { ...raw, prompt: typeof raw?.prompt === "string" ? raw.prompt : "" };
 		const agentName = typeof call.agent === "string" && call.agent ? call.agent : DEFAULT_WORKFLOW_AGENT;
-		const phaseIndex = call.phase ? findRunningPhase(call.phase) : -1;
-		const phase = phaseIndex >= 0 ? details.phases[phaseIndex] : undefined;
+		const phaseIndex = typeof call.phaseId === "number" ? phaseIndexById.get(call.phaseId) : undefined;
+		const phase = phaseIndex !== undefined ? details.phases[phaseIndex] : undefined;
+		const who: CallIdentity = { agent: agentName, label: call.label, phase: call.phase };
 		const row: WorkflowAgentRow = {
 			id: details.agents.length + 1,
 			agent: agentName,
@@ -460,7 +490,7 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 			attempts: 0,
 			cost: 0,
 			isolated: call.isolation === "worktree" || undefined,
-			phaseIndex: phase ? phaseIndex : undefined,
+			phaseIndex,
 		};
 		details.agents.push(row);
 
@@ -477,9 +507,7 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 			post({ type: "response", id, ok: true, value });
 		};
 
-		const invalid = !call.prompt.trim()
-			? failedResult(call, agentName, "error", "agent(): prompt must be a non-empty string")
-			: precheck(call, agentName);
+		const invalid = precheck(call, who);
 		if (invalid) {
 			settle(invalid);
 			return;
@@ -487,7 +515,7 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 
 		emitNow();
 		if (!(await sem.acquire(runAbort.signal))) {
-			settle(failedResult(call, agentName, "aborted", "Workflow aborted before the agent started"));
+			settle(failedResult(who, "aborted", "Workflow aborted before the agent started"));
 			return;
 		}
 		let value: WorkflowAgentResult;
@@ -500,7 +528,7 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 				if (phase) phase.spawned++;
 			});
 		} catch (err) {
-			value = failedResult(call, agentName, "error", errorMessage(err));
+			value = failedResult(who, "error", errorMessage(err));
 		} finally {
 			sem.release();
 		}
@@ -529,14 +557,8 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 	};
 
 	// ── phases & logs ──
-	/** Index of the latest running phase named `name`, or -1. */
-	const findRunningPhase = (name: string): number => {
-		for (let i = details.phases.length - 1; i >= 0; i--) {
-			const p = details.phases[i];
-			if (p.name === name && p.status === "running") return i;
-		}
-		return -1;
-	};
+	/** Worker phase id → index into details.phases. */
+	const phaseIndexById = new Map<number, number>();
 
 	const onMessage = (msg: WorkerToHost) => {
 		if (finished || !msg || typeof msg !== "object") return;
@@ -550,14 +572,16 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 				const text = String(msg.text);
 				details.logs.push(text.length > MAX_LOG_CHARS ? `${text.slice(0, MAX_LOG_CHARS)}…` : text);
 				if (details.logs.length > MAX_STORED_LOGS) details.logs.splice(0, details.logs.length - MAX_STORED_LOGS);
-				emitNow();
+				emitThrottled();
 				return;
 			}
 			case "phase":
 				if (msg.event === "start") {
-					details.phases.push({ name: msg.name, status: "running", startedAt: Date.now(), spawned: 0, done: 0, failed: 0 });
+					const phase = { name: String(msg.name), status: "running" as const, startedAt: Date.now(), spawned: 0, done: 0, failed: 0 };
+					phaseIndexById.set(msg.id, details.phases.push(phase) - 1);
 				} else {
-					const p = details.phases[findRunningPhase(msg.name)];
+					const index = phaseIndexById.get(msg.id);
+					const p = index !== undefined ? details.phases[index] : undefined;
 					if (p) {
 						p.status = "done";
 						p.endedAt = Date.now();
@@ -566,7 +590,12 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 				emitNow();
 				return;
 			case "done":
-				scriptResult = msg.result;
+				try {
+					scriptResult = msg.json === undefined ? undefined : JSON.parse(msg.json);
+				} catch (err) {
+					void finish("failed", `workflow return value could not be read: ${errorMessage(err)}`);
+					return;
+				}
 				void finish("done");
 				return;
 			case "error": {
@@ -579,7 +608,7 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 	};
 
 	// ── lifecycle ──
-	const finish = async (status: Exclude<WorkflowStatus, "pending-approval" | "canceled" | "running">, error?: string) => {
+	const finish = async (status: Exclude<WorkflowStatus, "canceled" | "running">, error?: string) => {
 		if (finished) return;
 		finished = true;
 		clearTimeout(emitTimer);
@@ -588,19 +617,30 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 		if (error) details.error = error;
 		const w = worker;
 		worker = undefined;
-		// Nothing awaits calls still running once the script is over: stop them.
-		runAbort.abort();
-		await Promise.allSettled([w?.terminate(), ...inFlight]);
-		while (inFlight.size > 0) await Promise.allSettled([...inFlight]);
-		if (runDirUsed) {
-			// Catches worktrees left behind by aborted or crashed calls.
-			await gitQueue;
-			const repoRoot = repoRootPromise ? await repoRootPromise : null;
-			await wtOps.sweepRunDir(repoRoot, runDir).catch(() => undefined);
+		try {
+			// Nothing awaits calls still running once the script is over: stop them.
+			runAbort.abort();
+			await Promise.allSettled([w?.terminate(), ...inFlight]);
+			while (inFlight.size > 0) await Promise.allSettled([...inFlight]);
+			if (runDir) {
+				// Catches worktrees left behind by aborted or crashed calls.
+				await gitQueue;
+				const repoRoot = repoRootPromise ? await repoRootPromise : null;
+				const dir = runDir;
+				await Promise.resolve()
+					.then(() => wtOps.sweepRunDir(repoRoot, dir))
+					.catch(() => undefined);
+			}
+		} finally {
+			details.endedAt = Date.now();
+			for (const p of details.phases) {
+				if (p.status !== "running") continue;
+				p.status = "done";
+				p.endedAt = details.endedAt;
+			}
+			report();
+			resolveOutcome({ details: snapshot(), result: status === "done" ? scriptResult : undefined });
 		}
-		details.endedAt = Date.now();
-		opts.onProgress?.(snapshot());
-		resolveOutcome({ details: snapshot(), result: status === "done" ? scriptResult : undefined });
 	};
 
 	const onExternalAbort = () => void finish("aborted", "Workflow aborted");
@@ -616,13 +656,15 @@ export function runWorkflow(opts: WorkflowRunOptions): Promise<WorkflowRunOutcom
 			eval: true,
 			workerData: { script: opts.script, args: opts.args ?? {} },
 			resourceLimits: { maxOldGenerationSizeMb: WORKER_HEAP_MB },
+			// The parent's node flags (e.g. --import loaders, --experimental-*) could break the CommonJS source.
+			execArgv: [],
 		});
 	} catch (err) {
-		void finish("failed", `Could not start workflow worker: ${err instanceof Error ? err.message : String(err)}`);
+		void finish("failed", `Could not start workflow worker: ${errorMessage(err)}`);
 		return outcome;
 	}
 	worker.on("message", onMessage);
-	worker.on("error", (err) => void finish("failed", err instanceof Error ? err.message : String(err)));
+	worker.on("error", (err) => void finish("failed", errorMessage(err)));
 	worker.on("exit", (code) => void finish("failed", `workflow worker exited (code ${code})`));
 	emitNow();
 	return outcome;

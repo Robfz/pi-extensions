@@ -25,12 +25,14 @@ Summarize the drift before fixing anything.
 
 ## 2. Fix symlinks
 
-`scripts/link.sh` links every entry of `extensions/`, `agents/`, `skills/`, `themes/`, `prompts/`, and `workflows/` (saved workflow scripts → `~/.pi/agent/workflows/`), plus `APPEND_SYSTEM.md`. It creates and repoints links but never prunes. When an entry is renamed or deleted in the repo, doctor reports its old link as `broken:`. Remove each broken link that points into this repo:
+`scripts/link.sh` links every entry of `extensions/`, `agents/`, `skills/`, `themes/`, `prompts/`, and `workflows/` (saved workflow scripts → `~/.pi/agent/workflows/`), plus `APPEND_SYSTEM.md`. It creates and repoints links but never prunes. When an entry is renamed or deleted in the repo, doctor reports its old link as `broken:`. This also covers links directly under `~/.pi/agent/` whose repo target is gone (e.g. `mcp.json` left pointing at a file the repo no longer tracks). Remove each broken link that points into this repo:
 
 ```sh
-rm ~/.pi/agent/<kind>/<name>
+rm ~/.pi/agent/<kind>/<name>   # or ~/.pi/agent/<name> for top-level links
 scripts/link.sh
 ```
+
+If a removed top-level link was a per-machine file pi still needs (such as `mcp.json`), tell the user to recreate it as a real file; don't write it yourself.
 
 Leave `real:`, `conflict:`, and `foreign:` findings alone and report them. They need a human decision. `extensions/herdr-agent-state.ts` is managed by Herdr and doctor already skips it.
 

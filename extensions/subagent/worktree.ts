@@ -9,6 +9,7 @@ import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { errorMessage } from "./types.ts";
 
 export interface IsolatedWorktree {
 	path: string;
@@ -116,7 +117,11 @@ export async function removeWorktree(repoRoot: string, wtPath: string): Promise<
 	try {
 		await git(repoRoot, ["worktree", "remove", "--force", "--force", wtPath]);
 	} catch {
-		fs.rmSync(wtPath, { recursive: true, force: true });
+		try {
+			fs.rmSync(wtPath, { recursive: true, force: true });
+		} catch {
+			/* best effort; the run dir sweep retries */
+		}
 	}
 	try {
 		await git(repoRoot, ["worktree", "prune"]);
@@ -150,12 +155,12 @@ export async function applyPatchToCheckout(repoRoot: string, patch: string): Pro
 		try {
 			await git(repoRoot, ["apply", "--check", file]);
 		} catch (err) {
-			return { ok: false, error: err instanceof Error ? err.message : String(err) };
+			return { ok: false, error: errorMessage(err) };
 		}
 		try {
 			await git(repoRoot, ["apply", file]);
 		} catch (err) {
-			return { ok: false, error: err instanceof Error ? err.message : String(err) };
+			return { ok: false, error: errorMessage(err) };
 		}
 		return { ok: true };
 	} finally {

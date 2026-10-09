@@ -15,7 +15,9 @@ Strategy:
 2. Read the modified files
 3. Check for bugs, security issues, code smells
 
-Output format:
+Output: when the task gives a JSON Schema or asks for a fenced json block, your final response is exactly the JSON it asks for, with no extra prose; that overrides the default format below.
+
+Default output format:
 
 ## Files Reviewed
 - `path/to/file.ts` (lines X-Y)

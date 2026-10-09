@@ -9,6 +9,8 @@
 #   2. Every entry inside ~/.pi/agent/<kind>/ is a symlink into this repo —
 #      flags real files, broken symlinks, and symlinks pointing elsewhere,
 #      except integrations explicitly managed by another application.
+#   3. No symlink directly under ~/.pi/agent/ points into this repo at a path
+#      that no longer exists (e.g. a file the repo stopped tracking).
 #
 # Exits 0 when everything checks out, 1 otherwise. Fix problems with
 # scripts/link.sh (or by hand for real-file conflicts).
@@ -79,6 +81,17 @@ for kind in $KINDS; do
       esac
     fi
   done
+done
+
+# 3. Top level: dangling symlinks into this repo left by removed or untracked files.
+for dst in "$AGENT_DIR"/* "$AGENT_DIR"/.[!.]*; do
+  [ -L "$dst" ] && [ ! -e "$dst" ] || continue
+  case "$(readlink "$dst")" in
+    "$REPO_DIR"/*)
+      echo "broken:   $dst -> $(readlink "$dst") (target gone from this repo: rm the link; recreate it as a real file if pi still needs it)"
+      problems=$((problems + 1))
+      ;;
+  esac
 done
 
 if [ "$problems" -eq 0 ]; then

@@ -59,3 +59,64 @@ export async function setAutoApproved(key: string): Promise<void> {
 		await fs.promises.writeFile(file, `${JSON.stringify(data, null, 2)}\n`, { encoding: "utf-8", mode: 0o600 });
 	});
 }
+
+/** A project agent a workflow run could use; `overridesUser` when it shadows a user agent of the same name. */
+export interface ProjectAgentRef {
+	name: string;
+	overridesUser: boolean;
+}
+
+export interface WorkflowGateInput {
+	name: string;
+	hasUI: boolean;
+	autoApproved: boolean;
+	source: "inline" | "user" | "project";
+	agentScope: "user" | "project" | "both";
+	/** Project agents in the discovered agent set (empty for scope "user"). */
+	projectAgents: ProjectAgentRef[];
+	/** Directory the project agents come from, for messages. */
+	projectAgentsDir?: string | null;
+}
+
+export type WorkflowGateDecision =
+	| { action: "run" }
+	/** Run without a dialog, telling the user via `message`. */
+	| { action: "notify"; message: string }
+	/** Ask the user; `projectAgentsNote` (if any) belongs in the dialog. */
+	| { action: "confirm"; projectAgentsNote?: string }
+	| { action: "refuse"; message: string };
+
+/** One line naming the project agents and the user agents they override; undefined when there are none. */
+export function describeProjectAgents(agents: ProjectAgentRef[], dir?: string | null): string | undefined {
+	if (agents.length === 0) return undefined;
+	const names = agents.map((a) => (a.overridesUser ? `${a.name} (overrides user agent ${a.name})` : a.name));
+	return `Project agents (repo-controlled${dir ? `, from ${dir}` : ""}): ${names.join(", ")}`;
+}
+
+/**
+ * Whether a workflow may run. Auto-approved projects run (with a notice when there is a UI).
+ * Otherwise the UI asks; without a UI only a user-scope saved workflow with agentScope "user" runs,
+ * since nothing repo-controlled (script or agents) is involved.
+ */
+export function decideWorkflowGate(input: WorkflowGateInput): WorkflowGateDecision {
+	const note = describeProjectAgents(input.projectAgents, input.projectAgentsDir);
+	if (input.autoApproved) {
+		if (!input.hasUI) return { action: "run" };
+		const message = `Workflow "${input.name}" auto-approved for this project${note ? `\n${note}` : ""}`;
+		return { action: "notify", message };
+	}
+	if (input.hasUI) return note ? { action: "confirm", projectAgentsNote: note } : { action: "confirm" };
+	if (input.source === "user" && input.agentScope === "user") return { action: "run" };
+	const what =
+		input.source === "inline"
+			? "Inline workflow scripts"
+			: input.source === "project"
+				? "Project workflows"
+				: `Workflows with agentScope "${input.agentScope}"`;
+	return {
+		action: "refuse",
+		message:
+			`${what} need interactive approval: without a UI only user workflows with agentScope "user" run unattended. ` +
+			`Start a TUI session and choose "Auto-approve for this project" to allow them here.${note ? `\n${note}` : ""}`,
+	};
+}

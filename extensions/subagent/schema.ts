@@ -1,6 +1,7 @@
 /** JSON Schema validation of workflow agent output (TypeBox `Value`, which accepts plain JSON Schema objects). */
 
 import { Value } from "typebox/value";
+import { errorMessage } from "./types.ts";
 
 /** Retries after the first attempt; a call runs at most MAX_SCHEMA_RETRIES + 1 child processes. */
 export const MAX_SCHEMA_RETRIES = 3;
@@ -19,8 +20,53 @@ export function extractJson(output: string): { value: unknown } | { error: strin
 		return { value: JSON.parse(text) };
 	} catch (err) {
 		const what = last === undefined ? "output is not a ```json block or bare JSON" : "```json block is not valid JSON";
-		return { error: `${what}: ${err instanceof Error ? err.message : String(err)}` };
+		return { error: `${what}: ${errorMessage(err)}` };
 	}
+}
+
+const SCHEMA_EVAL_ERROR = "schema could not be evaluated";
+/** Values of each JSON type, so type-specific keywords at the top level are exercised. */
+const PROBE_VALUES: unknown[] = [null, "", 0, false, [], {}];
+
+/** First `pattern` / `patternProperties` key anywhere in the schema that is not a valid RegExp. */
+function findInvalidPattern(node: unknown): string | undefined {
+	if (Array.isArray(node)) {
+		for (const item of node) {
+			const bad = findInvalidPattern(item);
+			if (bad !== undefined) return bad;
+		}
+		return undefined;
+	}
+	if (node === null || typeof node !== "object") return undefined;
+	const record = node as Record<string, unknown>;
+	const patterns: string[] = [];
+	if (typeof record.pattern === "string") patterns.push(record.pattern);
+	if (record.patternProperties && typeof record.patternProperties === "object") {
+		patterns.push(...Object.keys(record.patternProperties));
+	}
+	for (const p of patterns) {
+		try {
+			new RegExp(p, "u");
+		} catch {
+			return p;
+		}
+	}
+	for (const value of Object.values(record)) {
+		const bad = findInvalidPattern(value);
+		if (bad !== undefined) return bad;
+	}
+	return undefined;
+}
+
+/** Why the validator cannot evaluate `schema`, or undefined when it can. */
+export function schemaProblem(schema: object): string | undefined {
+	const badPattern = findInvalidPattern(schema);
+	if (badPattern !== undefined) return `${SCHEMA_EVAL_ERROR}: invalid pattern ${JSON.stringify(badPattern)}`;
+	for (const probe of PROBE_VALUES) {
+		const errors = validateAgainst(schema, probe);
+		if (errors[0]?.startsWith(SCHEMA_EVAL_ERROR)) return errors[0];
+	}
+	return undefined;
 }
 
 /** Validation errors as `path: message` lines (at most 20); empty when `value` validates. */
@@ -34,7 +80,7 @@ export function validateAgainst(schema: object, value: unknown): string[] {
 		}
 		return errors.length > 0 ? errors : ["/: value does not match the schema"];
 	} catch (err) {
-		return [`schema could not be evaluated: ${err instanceof Error ? err.message : String(err)}`];
+		return [`${SCHEMA_EVAL_ERROR}: ${errorMessage(err)}`];
 	}
 }
 

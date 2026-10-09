@@ -8,7 +8,8 @@
 // uncommitted, and untracked changes. Phases: target (resolve refs and files), angles
 // (6 reviewers), judge (dedupe), challenge (one adversarial reviewer per finding), verify
 // (one verifier per surviving finding, isolated worktree), rules (placeholder). Returns a
-// markdown report.
+// markdown report: verified findings in the main table, unconfirmed ones (verification
+// inconclusive or failed) in their own section, not-reproduced and refuted ones in appendices.
 
 const SEVERITIES = ["critical", "major", "minor", "info"];
 const ANGLES = {
@@ -176,21 +177,47 @@ await phase("rules", async () => {
 });
 
 // ── report ──────────────────────────────────────────────────────────────────
+// Buckets: verified (actionable), unconfirmed (inconclusive, or verification failed),
+// not reproduced, refuted. Only verified findings go in the main table.
 const rows = findings.map((f, i) => {
   const c = challenges[i];
   const vi = toVerify.indexOf(f);
   const v = vi === -1 ? undefined : verified[vi];
-  const refuted = c.ok && c.data.verdict === "refuted";
+  const bucket = !v ? "refuted"
+    : !v.ok || v.data.status === "inconclusive" ? "unconfirmed"
+    : v.data.status === "verified" ? "verified" : "not-reproduced";
   return {
-    f, c, v, refuted,
+    f, c, v, bucket,
     severity: v?.ok ? v.data.severity : f.severity,
     confidence: v?.ok ? v.data.confidence : undefined,
-    status: v ? (v.ok ? v.data.status : `unverified (${v.reason})`) : "refuted",
   };
 });
-const live = rows.filter((r) => !r.refuted).sort((a, b) =>
-  SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity) || (b.confidence ?? -1) - (a.confidence ?? -1));
-const refutedRows = rows.filter((r) => r.refuted);
+const bySeverity = (a, b) =>
+  SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity) || (b.confidence ?? -1) - (a.confidence ?? -1);
+const inBucket = (name) => rows.filter((r) => r.bucket === name).sort(bySeverity);
+const confirmed = inBucket("verified");
+const unconfirmed = inBucket("unconfirmed");
+const notReproduced = inBucket("not-reproduced");
+const refutedRows = inBucket("refuted");
+
+const challengeText = (c) => (c.ok ? `${c.data.verdict}: ${c.data.argument}` : `failed (${c.reason})`);
+const verificationText = (v) => (v.ok
+  ? `${v.data.status} (confidence ${v.data.confidence}): ${v.data.method}\n\n${v.data.evidence}`
+  : `failed (${v.reason}): ${cell(v.error ?? "").slice(0, 300)}`);
+const detail = (r, heading) => [
+  `${heading} ${r.f.id} · ${r.severity} · ${r.f.title}`,
+  "",
+  `\`${loc(r.f)}\` · angles: ${r.f.angles.join(", ")}${r.f.merged > 1 ? ` · merged from ${r.f.merged}` : ""}${r.severity !== r.f.severity ? ` · reviewer severity: ${r.f.severity}` : ""}`,
+  "",
+  r.f.description,
+  "",
+  `**Evidence:** ${r.f.evidence}`,
+  "",
+  `**Challenge:** ${challengeText(r.c)}`,
+  "",
+  `**Verification:** ${verificationText(r.v)}`,
+  "",
+];
 
 const out = [
   `# Review: ${t.base}…working tree`,
@@ -199,32 +226,28 @@ const out = [
   "",
   t.summary,
   "",
-  `**${live.length} findings**, ${refutedRows.length} refuted, ${angleResults.filter((r) => !r.ok).length} of ${angleResults.length} angle reviewers failed.`,
+  `**${confirmed.length} verified**, ${unconfirmed.length} unconfirmed, ${notReproduced.length} not reproduced, ${refutedRows.length} refuted · ${angleResults.filter((r) => !r.ok).length} of ${angleResults.length} angle reviewers failed.`,
   "",
 ];
-if (live.length) {
-  out.push("| id | severity | confidence | status | location | title |", "|---|---|---|---|---|---|");
-  for (const r of live) {
-    out.push(`| ${r.f.id} | ${r.severity} | ${r.confidence ?? "–"} | ${r.status} | \`${cell(loc(r.f))}\` | ${cell(r.f.title)} |`);
-  }
+if (confirmed.length) {
+  out.push("| id | severity | confidence | location | title |", "|---|---|---|---|---|");
+  for (const r of confirmed) out.push(`| ${r.f.id} | ${r.severity} | ${r.confidence} | \`${cell(loc(r.f))}\` | ${cell(r.f.title)} |`);
   out.push("");
+  for (const r of confirmed) out.push(...detail(r, "##"));
 }
-for (const r of live) {
-  const { f, c, v } = r;
+if (unconfirmed.length) {
   out.push(
-    `## ${f.id} · ${r.severity} · ${f.title}`,
+    "## Unconfirmed findings",
     "",
-    `\`${loc(f)}\` · angles: ${f.angles.join(", ")}${f.merged > 1 ? ` · merged from ${f.merged}` : ""}${r.severity !== f.severity ? ` · reviewer severity: ${f.severity}` : ""}`,
-    "",
-    f.description,
-    "",
-    `**Evidence:** ${f.evidence}`,
-    "",
-    `**Challenge:** ${c.ok ? `${c.data.verdict}: ${c.data.argument}` : `failed (${c.reason})`}`,
-    "",
-    `**Verification:** ${v.ok ? `${v.data.status} (confidence ${v.data.confidence}): ${v.data.method}\n\n${v.data.evidence}` : `failed (${v.reason}): ${cell(v.error ?? "").slice(0, 300)}`}`,
+    "Not refuted, but verification was inconclusive or failed. Not actionable as-is: check these by hand.",
     "",
   );
+  for (const r of unconfirmed) out.push(...detail(r, "###"));
+}
+if (notReproduced.length) {
+  out.push("## Appendix: not reproduced", "");
+  for (const { f, v } of notReproduced) out.push(`- **${f.id}** ${f.severity} · \`${loc(f)}\` · ${f.title}: ${cell(v.data.method)}`);
+  out.push("");
 }
 if (refutedRows.length) {
   out.push("## Appendix: refuted findings", "");

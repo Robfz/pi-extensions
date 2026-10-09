@@ -13,6 +13,7 @@ import type { AgentConfig } from "../agents.ts";
 import { runSingleAgent } from "../runner.ts";
 import { subagentCost } from "../types.ts";
 import { formatWorkflowResult, runWorkflow } from "../workflow.ts";
+import { createIsolatedWorktree } from "../worktree.ts";
 
 const MODEL = process.env.SMOKE_MODEL ?? "claude-haiku-4-5";
 
@@ -72,6 +73,7 @@ return { n: s.data && s.data.n, a: a.output, b: b.output, isolated: w.ok, applie
 console.log(`smoke: model ${MODEL}, repo ${repo}`);
 const t0 = Date.now();
 let lastLine = "";
+let runDir: string | undefined;
 const { details, result } = await runWorkflow({
 	runId: `smoke-${Date.now().toString(36)}`,
 	name: "smoke",
@@ -84,6 +86,12 @@ const { details, result } = await runWorkflow({
 	projectAgentsDir: null,
 	runner: runSingleAgent,
 	piInvocation: (args) => ({ command: "pi", args }),
+	worktrees: {
+		createIsolatedWorktree: (root, dir, index) => {
+			runDir = dir;
+			return createIsolatedWorktree(root, dir, index);
+		},
+	},
 	onProgress: (d) => {
 		const running = d.agents.filter((r) => r.status === "running").length;
 		const line = `  … ${d.status} spawned=${d.spawned} running=${running} cost=$${subagentCost(d).toFixed(4)}`;
@@ -111,7 +119,8 @@ try {
 	assert.equal(fs.readFileSync(path.join(repo, "SMOKE.txt"), "utf8").trim(), "hello");
 	assert.ok(cost > 0, "non-zero cost");
 	assert.equal(git("worktree", "list", "--porcelain").split("\n").filter((l) => l.startsWith("worktree ")).length, 1);
-	assert.equal(fs.existsSync(path.join(os.tmpdir(), `pi-workflow-${details.runId}`)), false);
+	assert.ok(runDir, "a worktree was created");
+	assert.equal(fs.existsSync(runDir), false, "run dir swept");
 	console.log("\nSMOKE OK");
 } finally {
 	fs.rmSync(repo, { recursive: true, force: true });

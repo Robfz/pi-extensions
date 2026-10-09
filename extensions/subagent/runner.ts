@@ -3,7 +3,7 @@
  * and parses their JSON event streams into a SingleResult. No TUI imports.
  */
 
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -59,20 +59,76 @@ export async function writePromptToTempFile(agentName: string, prompt: string): 
 	return { dir: tmpDir, filePath };
 }
 
-export function getPiInvocation(args: string[]): { command: string; args: string[] } {
-	const currentScript = process.argv[1];
+/** Process facts getPiInvocation reads; injectable for tests. */
+export interface PiInvocationEnv {
+	execPath: string;
+	script: string | undefined;
+	existsSync: (p: string) => boolean;
+}
+
+/**
+ * Command line that re-runs the current pi: this runtime + its entry script, or the compiled binary.
+ * Falls back to `pi` on PATH when the runtime binary is gone (e.g. a package manager upgraded node mid-session).
+ */
+export function getPiInvocation(
+	args: string[],
+	env: PiInvocationEnv = { execPath: process.execPath, script: process.argv[1], existsSync: fs.existsSync },
+): { command: string; args: string[] } {
+	if (!env.existsSync(env.execPath)) return { command: "pi", args };
+
+	const currentScript = env.script;
 	const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
-	if (currentScript && !isBunVirtualScript && fs.existsSync(currentScript)) {
-		return { command: process.execPath, args: [currentScript, ...args] };
+	if (currentScript && !isBunVirtualScript && env.existsSync(currentScript)) {
+		return { command: env.execPath, args: [currentScript, ...args] };
 	}
 
-	const execName = path.basename(process.execPath).toLowerCase();
+	const execName = path.basename(env.execPath).toLowerCase();
 	const isGenericRuntime = /^(node|bun)(\.exe)?$/.test(execName);
 	if (!isGenericRuntime) {
-		return { command: process.execPath, args };
+		return { command: env.execPath, args };
 	}
 
 	return { command: "pi", args };
+}
+
+/** Children get their own process group (POSIX) so a kill reaches the tools they started too. */
+const USE_PROCESS_GROUPS = process.platform !== "win32";
+
+/** Process group ids of live children, terminated if pi exits while they still run. */
+const liveGroups = new Set<number>();
+let exitHookInstalled = false;
+
+/** Signals `proc`'s whole process group, or just `proc` when there is no group (Windows, or already gone). */
+export function killProcessTree(proc: ChildProcess, signal: NodeJS.Signals): void {
+	if (USE_PROCESS_GROUPS && proc.pid) {
+		try {
+			process.kill(-proc.pid, signal);
+			return;
+		} catch {
+			/* ESRCH: group gone */
+		}
+	}
+	try {
+		proc.kill(signal);
+	} catch {
+		/* already exited */
+	}
+}
+
+function trackGroup(pid: number | undefined): void {
+	if (!USE_PROCESS_GROUPS || !pid) return;
+	liveGroups.add(pid);
+	if (exitHookInstalled) return;
+	exitHookInstalled = true;
+	process.once("exit", () => {
+		for (const pgid of liveGroups) {
+			try {
+				process.kill(-pgid, "SIGTERM");
+			} catch {
+				/* gone */
+			}
+		}
+	});
 }
 
 /** Map cursor-agent tool names (from `<name>ToolCall` keys) to pi tool names for rendering. */
@@ -249,26 +305,28 @@ export async function runSingleAgent(spec: RunSpec): Promise<SingleResult> {
 			const invocation = isCursor
 				? { command: "cursor-agent", args }
 				: (spec.piInvocation ?? getPiInvocation)(args);
+			// `detached` only starts a new process group here: stdout/stderr stay piped and the child
+			// handle stays referenced (no unref), so pi still waits for and reads the child as before.
 			const proc = spawn(invocation.command, invocation.args, {
 				cwd: cwd ?? defaultCwd,
 				shell: false,
 				stdio: ["ignore", "pipe", "pipe"],
+				detached: USE_PROCESS_GROUPS,
 			});
+			const pgid = proc.pid;
+			trackGroup(pgid);
 			let buffer = "";
-			// `proc.killed` turns true once SIGTERM is sent, so track actual exit separately.
-			let exited = false;
 			let killTimer: NodeJS.Timeout | undefined;
+			// SIGTERM the group, then SIGKILL it 5 s later. The SIGKILL fires even when the child itself
+			// has exited, to reach descendants that ignored SIGTERM (a no-op once the group is empty).
 			const killProc = () => {
 				wasAborted = true;
-				proc.kill("SIGTERM");
-				killTimer = setTimeout(() => {
-					if (!exited) proc.kill("SIGKILL");
-				}, 5000);
+				killProcessTree(proc, "SIGTERM");
+				killTimer = setTimeout(() => killProcessTree(proc, "SIGKILL"), 5000);
 				killTimer.unref?.();
 			};
 			const markExited = () => {
-				exited = true;
-				clearTimeout(killTimer);
+				if (pgid) liveGroups.delete(pgid);
 				signal?.removeEventListener("abort", killProc);
 			};
 

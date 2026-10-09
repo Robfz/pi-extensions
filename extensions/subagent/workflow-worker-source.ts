@@ -40,13 +40,21 @@ function postError(err) {
 
 process.on("unhandledRejection", (err) => postError(err));
 
-let currentPhase;
+// Phases in start order, removed by identity when they end; agent() calls are attributed to the
+// most recently started phase that is still active (concurrent phases cannot be told apart).
+const activePhases = [];
+let nextPhaseId = 1;
 
 function agent(prompt, opts) {
 	if (typeof prompt !== "string" || !prompt.trim()) throw new TypeError("agent(prompt, opts?): prompt must be a non-empty string");
 	if (opts !== undefined && (opts === null || typeof opts !== "object")) throw new TypeError("agent(prompt, opts?): opts must be an object");
 	const o = opts || {};
-	const params = { prompt, phase: currentPhase };
+	const current = activePhases[activePhases.length - 1];
+	const params = { prompt };
+	if (current) {
+		params.phase = current.name;
+		params.phaseId = current.id;
+	}
 	for (const k of ["agent", "schema", "timeout", "isolation", "label"]) if (o[k] !== undefined) params[k] = o[k];
 	return call("agent", params);
 }
@@ -67,14 +75,14 @@ async function pipeline(stages, input) {
 async function phase(name, fn) {
 	if (typeof name !== "string" || !name) throw new TypeError("phase(name, fn): name must be a non-empty string");
 	if (typeof fn !== "function") throw new TypeError("phase(name, fn): fn must be a function");
-	parentPort.postMessage({ type: "phase", name, event: "start" });
-	const prev = currentPhase;
-	currentPhase = name;
+	const entry = { id: nextPhaseId++, name };
+	parentPort.postMessage({ type: "phase", id: entry.id, name, event: "start" });
+	activePhases.push(entry);
 	try {
 		return await fn();
 	} finally {
-		currentPhase = prev;
-		parentPort.postMessage({ type: "phase", name, event: "end" });
+		activePhases.splice(activePhases.indexOf(entry), 1);
+		parentPort.postMessage({ type: "phase", id: entry.id, name, event: "end" });
 	}
 }
 
@@ -111,17 +119,35 @@ try {
 	postError(err);
 }
 
+// Rejects values JSON would silently drop or mangle. Checks use Object.prototype.toString because
+// script values come from the vm context's realm, where instanceof against this realm's Map fails.
+function strictJson(key, value) {
+	const t = typeof value;
+	const at = key === "" ? "" : " at key " + JSON.stringify(key);
+	if (t === "bigint" || t === "function" || t === "symbol") throw new TypeError(t + at);
+	if (t === "number" && !Number.isFinite(value)) throw new TypeError(String(value) + at);
+	if (value !== null && t === "object") {
+		const tag = Object.prototype.toString.call(value).slice(8, -1);
+		if (tag === "Map" || tag === "Set" || tag === "WeakMap" || tag === "WeakSet") throw new TypeError(tag + at);
+	}
+	return value;
+}
+
 if (main) {
 	main(api).then(
 		(result) => {
+			let json;
 			try {
-				parentPort.postMessage({ type: "done", result });
-			} catch {
+				json = JSON.stringify(result, strictJson);
+			} catch (err) {
+				const why = err !== null && typeof err === "object" && typeof err.message === "string" ? err.message : String(err);
 				parentPort.postMessage({
 					type: "error",
-					message: "workflow returned a value that cannot be serialized (functions/class instances); return plain data",
+					message: "workflow returned a value that is not JSON-serializable: " + why + "; return plain data",
 				});
+				return;
 			}
+			parentPort.postMessage({ type: "done", json });
 		},
 		(err) => postError(err),
 	);

@@ -44,7 +44,7 @@ Local additions:
 | `figma-scout` | Explore a Figma node URL via the Figma remote MCP (`mcp__figma__*`, loaded with `tool_search`), report implementation-ready specs; read-only and Figma-only are prompt-level, not enforced | Opus 5.5 | read, bash, `tool_search` (+ MCP) |
 | `cross-reviewer` | Cross-model code review from an OpenAI model — independent eyes vs. Anthropic/Cursor authors (`runner: cursor`, `mode: plan`) | GPT-5.6 Terra Medium | read-only (plan mode) |
 
-Ultraspawn agents (used by `spawn` ultraspawn scripts such as [`../ultraspawns/review.js`](../ultraspawns/review.js); usable as plain agents too):
+Ultraspawn agents (used by `spawn` ultraspawn scripts such as [`../ultraspawns/review.js`](../ultraspawns/review.js) and [`../ultraspawns/implement.js`](../ultraspawns/implement.js); usable as plain agents too):
 
 | Agent | Purpose | Model | Tools |
 |---|---|---|---|
@@ -52,8 +52,9 @@ Ultraspawn agents (used by `spawn` ultraspawn scripts such as [`../ultraspawns/r
 | `judge` | Merges and dedupes findings from several reviewers into one list with stable ids (`F1`, …) | Opus 5.5 | read, grep, find, ls, bash (read-only by prompt) |
 | `adversarial-reviewer` | Tries to refute one finding against the code; verdict `stands` / `refuted` / `uncertain` (`thinking: high`) | Opus 5.5 | read, grep, find, ls, bash (read-only by prompt) |
 | `verifier` | Verifies one finding by running code in a throwaway worktree: repro tests, test suites, dependency installs; never commits | Opus 5.5 | (all default) minus `spawn`, `subagent` |
+| `rule-reviewer` | Checks a change against one project rule (an ADR-like markdown file): whether it applies, and each violation the change introduces | Sonnet 5.5 | read, grep, find, ls, bash (read-only by prompt) |
 
-All four exclude `spawn` and `subagent` so they can't launch agents of their own. Ultraspawn mode also forces that exclusion on every child it runs, whatever the agent file says.
+All five exclude `spawn` and `subagent` so they can't launch agents of their own. Ultraspawn mode also forces that exclusion on every child it runs, whatever the agent file says.
 
 ## Cursor runner
 

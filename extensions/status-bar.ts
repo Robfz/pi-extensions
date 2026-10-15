@@ -14,7 +14,7 @@
  * - dirty-dot   ●  green=clean, yellow=staged-only, red=unstaged/untracked
  *               omitted when not in a repo
  * - context-bar 5-cell █/░ bar, colored by pi's own thresholds (dim ≤70, warning >70, error >90)
- * - session-name ctx.sessionManager.getSessionName(), right-anchored on line 1, colored `accent`.
+ * - session-name ctx.sessionManager.getSessionName(), right-anchored on line 1, colored `text`.
  *                When no name is set, renders "unnamed" in `dim`. Either is dropped if line 1
  *                has no room for it.
  * - model       model.name with a leading "Claude " stripped (so "Claude Opus 4.7" → "Opus 4.7"),
@@ -223,7 +223,7 @@ function installFooter(initialCtx: ExtensionContext): void {
 				// Either is dropped if line 1's left content leaves no room (with a 2-col gap).
 				const rawSessionName = ctx.sessionManager.getSessionName();
 				const sessionLabel = rawSessionName ?? "unnamed";
-				const sessionColor: ThemeColor = rawSessionName ? "accent" : "dim";
+				const sessionColor: ThemeColor = rawSessionName ? "text" : "dim";
 				let line1Padded: string;
 				if (line1LeftWidth + 2 + visibleWidth(sessionLabel) <= innerWidth) {
 					const sessionColored = theme.fg(sessionColor, sessionLabel);

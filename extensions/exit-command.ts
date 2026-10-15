@@ -74,7 +74,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("before_agent_start", async (event) => {
 		if (!interactiveExitRequested) return;
-		if (!DEFERRED_PATTERN.test(event.prompt.trim())) return;
+		if (event.messageType !== "user" || !DEFERRED_PATTERN.test(event.prompt.trim())) return;
 
 		// This is the agent loop spawned by the interactive `exit` prompt;
 		// arm shutdown for its matching agent_end and clear the intent.

@@ -12,6 +12,7 @@ pi loads each of these from a directory under `~/.pi/agent/`. This repo keeps th
 │   ├── status-bar.ts
 │   ├── exit-command.ts
 │   ├── label.ts
+│   ├── auto-name.ts
 │   └── subagent/         # directory-form (index.ts + runner/render/types/agents + README)
 ├── agents/            # subagent defs (.md)  → ~/.pi/agent/agents/          (symlinked)
 ├── skills/            # Agent Skills         → ~/.pi/agent/skills/          (symlinked)
@@ -151,6 +152,10 @@ Prompt templates that drive chain mode live in [`prompts/`](prompts/) and surfac
 Ultraspawn mode runs a JS orchestration script: `spawn({ultraspawn: "<name>", args})` for a saved script, or `spawn({script, args})` for an inline one. The script runs in a `node:vm` context on a worker thread (for responsiveness and killability, not as a security boundary: an approved script is trusted code with your user's permissions) and drives pi-runner child agents through `agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, and `applyPatch`. Children can't spawn agents themselves; they return follow-up requests that the script queues. `agent()` supports JSON Schema output with retries, timeouts, and `isolation: "worktree"` (a throwaway git worktree whose changes come back as a patch). The parent model sees only the script's result. Progress renders inside the tool call, and every child's cost counts toward the `(sa $…)` spend. Approval is the trust gate: each interactive run asks Run / View script / Auto-approve for this project and run / Cancel (listing any project agents in scope and the user agents they override), and auto-approvals persist per project in `~/.pi/agent/ultraspawn-approvals.json`. Without a UI, a run proceeds only in an auto-approved project or for a user-scope saved ultraspawn with `agentScope: "user"`; everything else is refused. Saved scripts live in [`ultraspawns/`](ultraspawns/README.md) (linked to `~/.pi/agent/ultraspawns/`) or a project's `.pi/ultraspawns/` (opt-in via `agentScope`, like project agents). `review` is a verified multi-angle review, run via `/ultrareview [base-branch]`; `implement` implements a spec and reviews, challenges and fixes it until clean, enforcing the project's rule files. The model learns the API from the [`ultraspawn` skill](skills/ultraspawn/SKILL.md).
 
 Full runner details: [`extensions/subagent/README.md`](extensions/subagent/README.md) and [`agents/README.md`](agents/README.md).
+
+### `auto-name`
+
+Names an unnamed session after its first completed agent run. On `agent_settled` (skipped if aborted), it sends the first user prompt and the first assistant reply (each truncated to 2k chars) to `anthropic/claude-haiku-5-5`, falling back to the session model if Haiku has no auth. The reply becomes a title of at most 60 characters via `pi.setSessionName()`, which shows in the session selector and terminal title. It never overrides an existing name (`/name`, `--name`), so it runs at most once per session. Silent: failures leave the session unnamed.
 
 ### `label`
 

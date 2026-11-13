@@ -15,9 +15,15 @@ Finding facts is your job (codebase, docs, subagents) — never ask the user for
 
 ## The map file
 
-Every map file starts with the watermark line `<!-- pi:map -->`.
+Every map file starts with YAML frontmatter whose first key marks it as a map:
 
-Before round one, locate existing maps: `rg -l -g '*.md' '^<!-- pi:map -->' <repo root>` (repo root, or cwd outside a git repo).
+```
+---
+type: pi-map
+---
+```
+
+Before round one, locate existing maps: `rg -l -U -g '*.md' '\A---\ntype: pi-map\n' <repo root>` (repo root, or cwd outside a git repo).
 
 - **None found:** treat the map as a temporary artifact. Create `<topic-slug>-map.md` at the repo root without asking, and state the path in round one.
 - **Maps found:** propose a path next to them, following their naming, and have the user confirm it in round one (as one of the round's questions).

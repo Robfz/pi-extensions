@@ -22,7 +22,6 @@ const agent: AgentConfig = {
 	description: "smoke test agent",
 	runner: "pi",
 	model: MODEL,
-	excludedTools: ["spawn", "subagent"],
 	systemPrompt: "Answer tersely. Do exactly what the task says and nothing more.",
 	source: "user",
 	filePath: "<memory>",

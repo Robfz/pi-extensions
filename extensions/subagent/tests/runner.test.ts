@@ -46,7 +46,6 @@ function spec(extra: Partial<RunSpec> & { quick?: boolean; seen?: string[][] }):
 		agents: [piAgent("stub", { systemPrompt: "You are a stub.", excludedTools: ["write"] })],
 		agentName: "stub",
 		task: "do nothing",
-		extraExcludedTools: ["spawn", "subagent"],
 		piInvocation: (args) => {
 			seen?.push(args);
 			return { command: process.execPath, args: [FIXTURE, ...(quick ? ["--quick"] : []), ...args] };
@@ -56,9 +55,9 @@ function spec(extra: Partial<RunSpec> & { quick?: boolean; seen?: string[][] }):
 }
 
 describe("buildPiArgs", () => {
-	test("merges forced exclusions with the agent's own into a single --exclude-tools", () => {
+	test("merges delegation tools with the agent's own exclusions into a single --exclude-tools", () => {
 		const agent = piAgent("a", { excludedTools: ["bash", "spawn"], tools: ["read", "bash"], model: "m-1" });
-		const args = buildPiArgs(agent, ["spawn", "subagent"]);
+		const args = buildPiArgs(agent);
 		assert.equal(args.filter((a) => a === "--exclude-tools").length, 1);
 		assert.equal(args[args.indexOf("--exclude-tools") + 1], "bash,spawn,subagent");
 		assert.equal(args[args.indexOf("--tools") + 1], "read,bash");
@@ -66,10 +65,9 @@ describe("buildPiArgs", () => {
 		assert.deepEqual(args.slice(0, 4), ["--mode", "json", "-p", "--no-session"]);
 	});
 
-	test("no exclusions → no flag; extras alone → flag", () => {
-		assert.ok(!buildPiArgs(piAgent("a")).includes("--exclude-tools"));
-		const args = buildPiArgs(piAgent("a"), ["spawn"]);
-		assert.equal(args[args.indexOf("--exclude-tools") + 1], "spawn");
+	test("an agent without exclusions still loses the delegation tools", () => {
+		const args = buildPiArgs(piAgent("a"));
+		assert.equal(args[args.indexOf("--exclude-tools") + 1], "spawn,subagent");
 	});
 });
 

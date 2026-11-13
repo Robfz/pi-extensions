@@ -2,7 +2,6 @@
 name: rule-reviewer
 description: Checks a change against one project rule (an ADR-like markdown file); reports whether the rule applies and every violation the change introduces. Read-only. Used by the implement ultraspawn.
 tools: read, grep, find, ls, bash
-excludedTools: spawn, subagent
 model: claude-sonnet-5-5
 ---
 

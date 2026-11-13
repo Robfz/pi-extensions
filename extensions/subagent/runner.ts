@@ -10,7 +10,7 @@ import * as path from "node:path";
 import type { Message } from "@earendil-works/pi-ai";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import type { AgentConfig } from "./agents.ts";
-import { emptyUsage, getFinalOutput, type SingleResult } from "./types.ts";
+import { DELEGATION_TOOLS, emptyUsage, getFinalOutput, type SingleResult } from "./types.ts";
 
 export interface RunSpec {
 	defaultCwd: string;
@@ -23,8 +23,6 @@ export interface RunSpec {
 	signal?: AbortSignal;
 	/** Receives the live in-progress result after every parsed event. */
 	onUpdate?: (partial: SingleResult) => void;
-	/** Tools excluded on top of the agent's own `excludedTools` (pi runner only). */
-	extraExcludedTools?: string[];
 	/** Resolves the pi command line; defaults to getPiInvocation. */
 	piInvocation?: (args: string[]) => { command: string; args: string[] };
 }
@@ -210,15 +208,15 @@ export function formatCursorToolResult(result: unknown): { text: string; isError
 
 /**
  * pi CLI args for an agent, excluding the system prompt and task. pi's `--exclude-tools`
- * is last-wins, so `extraExcludedTools` is merged with the agent's own list into one flag.
+ * is last-wins, so DELEGATION_TOOLS is merged with the agent's own list into one flag.
  */
-export function buildPiArgs(agent: AgentConfig, extraExcludedTools: string[] = []): string[] {
+export function buildPiArgs(agent: AgentConfig): string[] {
 	const args = ["--mode", "json", "-p", "--no-session"];
 	if (agent.model) args.push("--model", agent.model);
 	if (agent.thinking) args.push("--thinking", agent.thinking);
 	if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
-	const excluded = [...new Set([...(agent.excludedTools ?? []), ...extraExcludedTools])];
-	if (excluded.length > 0) args.push("--exclude-tools", excluded.join(","));
+	const excluded = [...new Set([...(agent.excludedTools ?? []), ...DELEGATION_TOOLS])];
+	args.push("--exclude-tools", excluded.join(","));
 	return args;
 }
 
@@ -251,7 +249,7 @@ export async function runSingleAgent(spec: RunSpec): Promise<SingleResult> {
 	}
 
 	const isCursor = agent.runner === "cursor";
-	const args = isCursor ? buildCursorArgs(agent) : buildPiArgs(agent, spec.extraExcludedTools);
+	const args = isCursor ? buildCursorArgs(agent) : buildPiArgs(agent);
 
 	let tmpPromptDir: string | null = null;
 	let tmpPromptPath: string | null = null;

@@ -32,7 +32,7 @@ Bundled agents (from the upstream `subagent` extension example; descriptions loc
 |---|---|---|---|
 | `scout` | Fast codebase recon, returns compressed context for handoff; MCP access (e.g. Linear) via `tool_search`; read-only is prompt-level, not enforced | Sonnet 5.5 | read, bash, `tool_search` (+ MCP) |
 | `planner` | Implementation plans from context | Fable 5.1 | read, grep, find, ls |
-| `worker` | General-purpose, full capabilities; default for work requiring judgment | Opus 5.5 | (all default) minus `spawn`, `subagent` |
+| `worker` | General-purpose, full capabilities; default for work requiring judgment | Opus 5.5 | (all default) |
 | `reviewer` | Code review (read-only bash for `git diff`/`log`/`show`) | Opus 5.5 | read, grep, find, ls, bash |
 | `cursor-worker` | Cheap/fast worker on Cursor CLI (`runner: cursor`); prefer for mechanical or bulk edits | Composer 2.5 Fast | (all cursor-agent tools) |
 
@@ -48,13 +48,13 @@ Ultraspawn agents (used by `spawn` ultraspawn scripts such as [`../ultraspawns/r
 
 | Agent | Purpose | Model | Tools |
 |---|---|---|---|
-| `general` | Default agent for ultraspawn `agent()` calls. Its body is empty on purpose: the agent runs on pi's own system prompt with the task as its only instruction | pi default | (all default) minus `spawn`, `subagent` |
+| `general` | Default agent for ultraspawn `agent()` calls. Its body is empty on purpose: the agent runs on pi's own system prompt with the task as its only instruction | pi default | (all default) |
 | `judge` | Merges and dedupes findings from several reviewers into one list with stable ids (`F1`, …) | Opus 5.5 | read, grep, find, ls, bash (read-only by prompt) |
 | `adversarial-reviewer` | Tries to refute one finding against the code; verdict `stands` / `refuted` / `uncertain` (`thinking: high`) | Opus 5.5 | read, grep, find, ls, bash (read-only by prompt) |
-| `verifier` | Verifies one finding by running code in a throwaway worktree: repro tests, test suites, dependency installs; never commits | Opus 5.5 | (all default) minus `spawn`, `subagent` |
+| `verifier` | Verifies one finding by running code in a throwaway worktree: repro tests, test suites, dependency installs; never commits | Opus 5.5 | (all default) |
 | `rule-reviewer` | Checks a change against one project rule (an ADR-like markdown file): whether it applies, and each violation the change introduces | Sonnet 5.5 | read, grep, find, ls, bash (read-only by prompt) |
 
-All five exclude `spawn` and `subagent` so they can't launch agents of their own. Ultraspawn mode also forces that exclusion on every child it runs, whatever the agent file says.
+No agent can launch agents of its own: the pi runner always adds `spawn` and `subagent` to `--exclude-tools`, in every mode and whatever the agent file says, and cursor-runner agents don't get pi's tools at all.
 
 ## Cursor runner
 

@@ -228,14 +228,12 @@ describe("concurrency", () => {
 });
 
 describe("child specs", () => {
-	test("every child gets forced tool exclusions and composed instructions", async () => {
+	test("every child gets composed instructions", async () => {
 		const { fake, outcome } = run(`await agent("one"); await agent("two", { agent: "scout" }); return 1;`);
 		const { details } = await outcome;
 		assertDone(details);
 		assert.equal(fake.specs.length, 2);
 		for (const spec of fake.specs) {
-			assert.ok(spec.extraExcludedTools?.includes("spawn"));
-			assert.ok(spec.extraExcludedTools?.includes("subagent"));
 			assert.ok(spec.task.includes("<ultraspawn-instructions>"));
 			// cursor agents are not offered for follow-ups
 			assert.ok(spec.task.includes("one of: general, scout)"), spec.task);

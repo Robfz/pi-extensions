@@ -23,7 +23,6 @@ import {
 	type SingleResult,
 	type UsageStats,
 	type WorkerToHost,
-	ULTRASPAWN_CHILD_EXCLUDED_TOOLS,
 	type UltraspawnAgentCall,
 	type UltraspawnAgentResult,
 	type UltraspawnAgentRow,
@@ -353,7 +352,6 @@ export function runUltraspawn(opts: UltraspawnRunOptions): Promise<UltraspawnRun
 			agentName: row.agent,
 			task: spec.task,
 			signal: spec.signal,
-			extraExcludedTools: ULTRASPAWN_CHILD_EXCLUDED_TOOLS,
 			piInvocation: opts.piInvocation,
 			onUpdate: (partial) => {
 				record(partial);

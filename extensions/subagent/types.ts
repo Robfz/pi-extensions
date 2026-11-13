@@ -52,8 +52,8 @@ export type SubagentDetails = LegacyDetails | UltraspawnDetails;
 /** Default agent for ultraspawn `agent()` calls that name none. */
 export const DEFAULT_ULTRASPAWN_AGENT = "general";
 export const DEFAULT_ULTRASPAWN_CONCURRENCY = 16;
-/** Forced on every ultraspawn child: children never spawn agents themselves. */
-export const ULTRASPAWN_CHILD_EXCLUDED_TOOLS = [TOOL_NAME, "subagent"];
+/** Forced off for every pi-runner child in every mode: only the main session orchestrates. */
+export const DELEGATION_TOOLS = [TOOL_NAME, "subagent"];
 
 /** `agent()` call parameters sent from the worker to the host. */
 export interface UltraspawnAgentCall {

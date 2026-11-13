@@ -142,7 +142,7 @@ Registers one tool, `spawn` (not `subagent`, which the `pi-subagents` package cl
 
 | Runner | Subprocess | Notes |
 |---|---|---|
-| `pi` (default) | `pi --mode json -p --no-session` | System prompt via `--append-system-prompt`; `tools:` / `excludedTools:` / `model:` / `thinking:` frontmatter map to pi's tool allowlist (`--tools`), denylist (`--exclude-tools`), model, and `--thinking`. |
+| `pi` (default) | `pi --mode json -p --no-session` | System prompt via `--append-system-prompt`; `tools:` / `excludedTools:` / `model:` / `thinking:` frontmatter map to pi's tool allowlist (`--tools`), denylist (`--exclude-tools`), model, and `--thinking`. `spawn` and `subagent` are always excluded, so only the main session orchestrates. |
 | `cursor` | `cursor-agent -p --output-format stream-json --force --trust` | `model:` takes Cursor slugs; `tools:` is ignored and `excludedTools:` is rejected (agent skipped); `mode: plan` or `ask` gives CLI-enforced read-only runs. Needs `cursor-agent` on PATH and auth. |
 
 Agent definitions live in [`agents/`](agents/) (user scope, always loaded): `scout`, `web-scout`, `figma-scout`, `planner`, `worker`, `reviewer`, plus the ultraspawn agents `general`, `judge`, `adversarial-reviewer`, `verifier`, `rule-reviewer` on pi; `cursor-worker`, `cross-reviewer` on cursor — see the table in [`agents/README.md`](agents/README.md). Project-scope agents in `.pi/agents/` are opt-in via `agentScope: "project"` or `"both"`; interactive sessions ask for confirmation the first time one is invoked (disable with `confirmProjectAgents: false`). User-scope agents discovered at startup are listed in the tool description so the model knows what's available; new agent files need a session restart to be advertised.

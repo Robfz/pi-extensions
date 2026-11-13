@@ -15,7 +15,14 @@ Finding facts is your job (codebase, docs, subagents) — never ask the user for
 
 ## The map file
 
-Ask for the file path in round one. The file is the tree, and the session is disposable. Update it as each round settles. Every branch is **one line** in this grammar:
+Every map file starts with the watermark line `<!-- pi:map -->`.
+
+Before round one, locate existing maps: `rg -l -g '*.md' '^<!-- pi:map -->' <repo root>` (repo root, or cwd outside a git repo).
+
+- **None found:** treat the map as a temporary artifact. Create `<topic-slug>-map.md` at the repo root without asking, and state the path in round one.
+- **Maps found:** propose a path next to them, following their naming, and have the user confirm it in round one (as one of the round's questions).
+
+The file is the tree, and the session is disposable. Update it as each round settles. Every branch is **one line** in this grammar:
 
 ```
 - [settled] <decision> — <one-line rationale>

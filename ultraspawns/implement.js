@@ -12,8 +12,12 @@
 //              critical and major only, or all. Not-reproduced findings are not fixed.
 //   maxRounds  integer 1-10, optional, default 5. Review rounds; fixes run between rounds, so
 //              every fix is reviewed and the last round's surviving findings are reported, not fixed.
+//   context    string[], optional. Reference files for every agent (e.g. a decision map), relative
+//              to the repository root. They may be untracked; agents read them, never edit them,
+//              and reviewers don't treat them as part of the change.
 //
-// Requires a clean working tree: the change under review is everything since the starting HEAD.
+// Requires a clean working tree apart from untracked `context` files: the change under review is
+// everything since the starting HEAD.
 // Writes in the checkout, one writer at a time; never commits. Phases: preflight, implement,
 // then per round: review (one rule-reviewer per rule + 7 angle reviewers), judge (dedupe),
 // challenge (one adversarial reviewer per finding), verify (optional), fix (every surviving
@@ -40,7 +44,9 @@ const requestedChecks = typeof args.checks === "string" ? args.checks.trim() : "
 const rulesDir = typeof args.rules === "string" && args.rules.trim() ? args.rules.trim() : ".agents/rules";
 const verifyMode = args.verify ?? "none";
 const maxRounds = args.maxRounds ?? 5;
+const context = args.context ?? [];
 const argError = !spec ? "`spec` is required"
+  : !Array.isArray(context) || !context.every((p) => typeof p === "string" && p.trim()) ? "`context` must be an array of file paths"
   : !["none", "major", "all"].includes(verifyMode) ? "`verify` must be \"none\", \"major\" or \"all\""
   : !Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 10 ? "`maxRounds` must be an integer from 1 to 10"
   : "";
@@ -140,7 +146,7 @@ const stopped = (title, body) => `# Implement stopped: ${title}\n\n${body}\n\n${
 const pre = await phase("preflight", () => run(
   `Inspect the current git repository before an automated implementation run. Read-only: do not modify, fetch, checkout, or commit anything.
 1. head: the full sha from \`git rev-parse HEAD\`. branch: \`git branch --show-current\` (empty when detached).
-2. dirty: the lines of \`git status --porcelain\` (at most 20). Empty means the working tree is clean.
+2. dirty: the lines of \`git status --porcelain --untracked-files=all\` (at most 20). Empty means the working tree is clean.
 3. checks: ${requestedChecks ? `use exactly \`${requestedChecks}\`.` : "detect one shell command that typechecks, lints and tests the project, from package.json scripts, a Makefile, pyproject.toml, Cargo.toml or similar, joining several with &&. Prefer an existing aggregate script (e.g. `check`, `ci`) plus the test script. Empty if the project has none. Do not run it."}
 4. rules: every \`*.md\` file under \`${rulesDir}\` (recursively, paths relative to the current directory), except README.md files and files whose YAML frontmatter has \`status: superseded\`. title: the file's first heading, else its file name. An empty list if the directory doesn't exist.
 If this is not a git repository, set error to the reason.`,
@@ -149,12 +155,16 @@ If this is not a git repository, set error to the reason.`,
 if (!pre.ok) return stopped("preflight failed", `${pre.reason}: ${pre.error}`);
 const { head, branch, dirty, checks, rules } = pre.data;
 if (pre.data.error || !head) return stopped("not a git repository", pre.data.error || "no HEAD");
-if (dirty.length > 0) {
-  return stopped("working tree not clean", `Commit or stash these first, so the review covers only this run's changes:\n\n\`\`\`\n${dirty.join("\n")}\n\`\`\``);
+const blocking = dirty.filter((line) => !(line.startsWith("?? ") && context.includes(line.slice(3))));
+if (blocking.length > 0) {
+  return stopped("working tree not clean", `Commit or stash these first (or pass untracked reference files as \`context\`), so the review covers only this run's changes:\n\n\`\`\`\n${blocking.join("\n")}\n\`\`\``);
 }
 log(`preflight: ${branch || "detached"} @ ${head.slice(0, 12)} · checks: ${checks || "(none)"} · ${rules.length} rules`);
 
-const changeTarget = `The change under review is the working tree against ${head}: run \`git diff ${head}\` for tracked changes, and \`git ls-files --others --exclude-standard\` for new untracked files (read those in full; git diff does not show them).`;
+const contextLine = context.length
+  ? `Reference files (paths from the repository root): read them for background, never edit them; they are not part of the change.\n${list(context)}`
+  : "";
+const changeTarget = `The change under review is the working tree against ${head}: run \`git diff ${head}\` for tracked changes, and \`git ls-files --others --exclude-standard\` for new untracked files (read those in full; git diff does not show them).${contextLine ? `\n\n${contextLine}` : ""}`;
 const checksLine = checks
   ? `Checks: \`${checks}\`. Run them before you finish and keep going until they pass.`
   : "The project has no check command; run whatever tests cover your change.";
@@ -168,7 +178,7 @@ const impl = await phase("implement", () => run(
   `Implement this spec in the current checkout.
 
 ${specBlock}
-
+${contextLine ? `\n${contextLine}\n` : ""}
 ${checksLine}
 ${rulesLine}
 
@@ -245,7 +255,9 @@ Report only issues the change introduces or makes reachable, each anchored to a 
   // Open and unreported findings aren't settled, so a reviewer raising them again is signal.
   const prior = history.filter((h) => h.outcome !== "open" && h.outcome !== "unreported");
   const judged = await phase(`judge ${round}`, () => run(
-    `Merge and dedupe these code review findings into one list with ids F1, F2, …. ${changeTarget} Each raw finding carries the source that produced it (a review angle or a rule file); list contributing sources in "sources" and the number of raw findings merged in "merged".
+    `Merge and dedupe these code review findings into one list with ids F1, F2, …. ${changeTarget}
+
+Each raw finding carries the source that produced it (a review angle or a rule file); list contributing sources in "sources" and the number of raw findings merged in "merged".
 ${prior.length ? `
 Earlier rounds already handled these findings. Drop any raw finding that repeats one of them, unless it brings new evidence: a refuted finding with a new trigger path, or a fixed finding whose fix is wrong or incomplete.
 ${JSON.stringify(prior.map(({ title, file, line, outcome, note }) => ({ title, file, line, outcome, note })), null, 2)}
@@ -401,7 +413,7 @@ const lastRound = rounds.length;
 const status = cleanRound ? `clean after ${cleanRound} review round${cleanRound > 1 ? "s" : ""}`
   : open.length ? `stopped after ${lastRound} round${lastRound > 1 ? "s" : ""} with ${open.length} open finding${open.length > 1 ? "s" : ""}`
   : `stopped after ${lastRound} round${lastRound > 1 ? "s" : ""}`;
-const files = final.ok ? final.data.files : impl.data.filesChanged;
+const files = (final.ok ? final.data.files : impl.data.filesChanged).filter((f) => !context.includes(f));
 
 const out = [
   `# Implement: ${title}`,

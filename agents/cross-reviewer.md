@@ -1,8 +1,8 @@
 ---
 name: cross-reviewer
-description: Cross-model code reviewer on Cursor CLI (GPT-5.6 Terra) — an OpenAI perspective independent of Anthropic/Cursor models. Read-only (cursor plan mode, CLI-enforced). Use alongside or instead of reviewer when a second pair of eyes from a different model family is valuable.
+description: Cross-model code reviewer on Cursor CLI (GPT-5.6 Sol) — an OpenAI perspective independent of Anthropic/Cursor models. Read-only (cursor plan mode, CLI-enforced). Use alongside or instead of reviewer when a second pair of eyes from a different model family is valuable.
 runner: cursor
-model: gpt-5.6-terra-medium
+model: gpt-5.6-sol-high
 mode: plan
 ---
 

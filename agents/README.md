@@ -31,10 +31,10 @@ Bundled agents (from the upstream `subagent` extension example; descriptions loc
 | Agent | Purpose | Model | Tools |
 |---|---|---|---|
 | `scout` | Fast codebase recon, returns compressed context for handoff; MCP access (e.g. Linear) via `tool_search`; read-only is prompt-level, not enforced | Sonnet 5.5 | read, bash, `tool_search` (+ MCP) |
-| `planner` | Implementation plans from context | Fable 5.1 | read, grep, find, ls |
+| `planner` | Implementation plans from context | Fable 5.2 | read, grep, find, ls |
 | `worker` | General-purpose, full capabilities; default for work requiring judgment | Opus 5.5 | (all default) |
 | `reviewer` | Code review (read-only bash for `git diff`/`log`/`show`) | Opus 5.5 | read, grep, find, ls, bash |
-| `cursor-worker` | Cheap/fast worker on Cursor CLI (`runner: cursor`); prefer for mechanical or bulk edits | Composer 2.5 Fast | (all cursor-agent tools) |
+| `cursor-worker` | Fast worker on Cursor CLI (`runner: cursor`); prefer for mechanical or bulk edits | Composer 2.5 Fast | (all cursor-agent tools) |
 
 Local additions:
 
@@ -42,7 +42,7 @@ Local additions:
 |---|---|---|---|
 | `web-scout` | Web research recon, returns compressed, cited findings; is instructed to call `web_enable` first; MCP access via `tool_search`; read-only is prompt-level, not enforced | Sonnet 5.5 | read, bash, `tool_search` (+ MCP), `web_enable` (+ web tools) |
 | `figma-scout` | Explore a Figma node URL via the Figma remote MCP (`mcp__figma__*`, loaded with `tool_search`), report implementation-ready specs; read-only and Figma-only are prompt-level, not enforced | Opus 5.5 | read, bash, `tool_search` (+ MCP) |
-| `cross-reviewer` | Cross-model code review from an OpenAI model — independent eyes vs. Anthropic/Cursor authors (`runner: cursor`, `mode: plan`) | GPT-5.6 Terra Medium | read-only (plan mode) |
+| `cross-reviewer` | Cross-model code review from an OpenAI model — independent eyes vs. Anthropic/Cursor authors (`runner: cursor`, `mode: plan`) | GPT-5.6 Sol High | read-only (plan mode) |
 
 Ultraspawn agents (used by `spawn` ultraspawn scripts such as [`../ultraspawns/review.js`](../ultraspawns/review.js) and [`../ultraspawns/implement.js`](../ultraspawns/implement.js); usable as plain agents too):
 

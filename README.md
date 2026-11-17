@@ -13,6 +13,7 @@ pi loads each of these from a directory under `~/.pi/agent/`. This repo keeps th
 │   ├── exit-command.ts
 │   ├── label.ts
 │   ├── auto-name.ts
+│   ├── herdr-tab-name.ts
 │   └── subagent/         # directory-form (index.ts + runner/render/types/agents + README)
 ├── agents/            # subagent defs (.md)  → ~/.pi/agent/agents/          (symlinked)
 ├── skills/            # Agent Skills         → ~/.pi/agent/skills/          (symlinked)
@@ -156,6 +157,10 @@ Full runner details: [`extensions/subagent/README.md`](extensions/subagent/READM
 ### `auto-name`
 
 Names an unnamed session after its first completed agent run. On `agent_settled` (skipped if aborted), it sends the first user prompt and the first assistant reply (each truncated to 2k chars) to `anthropic/claude-haiku-5-5`, falling back to the session model if Haiku has no auth. The reply becomes a title of at most 60 characters via `pi.setSessionName()`, which shows in the session selector and terminal title. It never overrides an existing name (`/name`, `--name`), so it runs at most once per session. Silent: failures leave the session unnamed.
+
+### `herdr-tab-name`
+
+When the session gets a name (`/name`, RPC, or `pi.setSessionName()`, e.g. from `auto-name`), renames the Herdr tab the session runs in, but only while the tab still has Herdr's automatic numeric name (`1`, `2`, …). A tab named by the user or by another agent is never overwritten, so whichever names the tab first wins. On `session_info_changed` it finds the tab containing `$HC_TERMINAL_ID` in `herdr-app ls` and runs `herdr-app do tab.rename`. Inactive outside Herdr (`HC_TERMINAL_ID` unset) and in sessions without a UI, so subagent pi processes leave the tab alone. Works the same on remote machines: `herdr-app` runs where pi runs and the rename syncs to every Herdr window showing the tab. Fire-and-forget with a 3s timeout per call; failures are silent.
 
 ### `label`
 

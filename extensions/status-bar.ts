@@ -18,7 +18,8 @@
  *                When no name is set, renders "unnamed" in `dim`. Either is dropped if line 1
  *                has no room for it.
  * - model       model.name with a leading "Claude " stripped (so "Claude Opus 4.7" → "Opus 4.7"),
- *               colored `text`
+ *               colored `text`, followed by a dim "(<provider display name>)" for non-Anthropic
+ *               providers (e.g. "(OpenCode Zen)")
  * - effort      thinking level when model.reasoning is true; colored using pi's matching
  *               `thinking{Level}` theme keys (so "high" glows the way pi glows it elsewhere)
  * - rest        only `$cost [(sub)] [(sa $cost)] pct%/win`; the rest of pi's default stats (tokens,
@@ -236,6 +237,10 @@ function installFooter(initialCtx: ExtensionContext): void {
 				// -------- line 3 left: model • effort
 				const model = ctx.model;
 				const modelName = model ? shortModelName(model.name ?? model.id) : "no-model";
+				const providerLabel =
+					model && model.provider !== "anthropic"
+						? ` (${ctx.modelRegistry.getProviderDisplayName(model.provider)})`
+						: "";
 				let effort: string | null = null;
 				if (model?.reasoning) {
 					// pi's default footer reads state.thinkingLevel; extensions can read it by
@@ -250,7 +255,8 @@ function installFooter(initialCtx: ExtensionContext): void {
 						}
 					}
 				}
-				const modelColored = theme.fg("text", modelName);
+				const modelColored = theme.fg("text", modelName) + theme.fg("dim", providerLabel);
+				const modelWidth = visibleWidth(modelName) + visibleWidth(providerLabel);
 				let leftRaw: string;
 				let leftRawWidth: number;
 				if (effort !== null) {
@@ -258,10 +264,10 @@ function installFooter(initialCtx: ExtensionContext): void {
 					const effortColored = theme.fg(thinkingColor(effort), effortLabel);
 					const sep = theme.fg("dim", " • ");
 					leftRaw = modelColored + sep + effortColored;
-					leftRawWidth = visibleWidth(modelName) + 3 + visibleWidth(effortLabel);
+					leftRawWidth = modelWidth + 3 + visibleWidth(effortLabel);
 				} else {
 					leftRaw = modelColored;
-					leftRawWidth = visibleWidth(modelName);
+					leftRawWidth = modelWidth;
 				}
 
 				// Defensive: clamp left to innerWidth. On narrow terminals the model name

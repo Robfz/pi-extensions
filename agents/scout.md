@@ -1,7 +1,7 @@
 ---
 name: scout
 description: Fast codebase recon that returns compressed context for handoff to other agents
-model: claude-sonnet-5-5
+model: anthropic/claude-sonnet-5-5
 excludedTools: edit, write, web_enable, web_search, fetch_content, get_search_content, source_check
 ---
 

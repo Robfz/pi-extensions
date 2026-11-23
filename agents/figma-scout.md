@@ -1,7 +1,7 @@
 ---
 name: figma-scout
 description: Explores a Figma node URL via the Figma remote MCP (design context, screenshots, variables) and reports implementation-ready design specs. Use whenever Figma design details are needed.
-model: claude-opus-5-5
+model: anthropic/claude-opus-5-5
 excludedTools: edit, write, web_enable, web_search, fetch_content, get_search_content, source_check
 ---
 

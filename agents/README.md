@@ -3,14 +3,14 @@
 Subagent definitions consumed by the `subagent` extension's `spawn` tool (see [`../extensions/subagent/`](../extensions/subagent/)).
 
 - **Pi scans:** `~/.pi/agent/agents/*.md` (user scope, always loaded). The `spawn` tool also reads `.pi/agents/*.md` from the project tree when `agentScope: "both"` or `"project"`.
-- **Format:** Markdown with YAML frontmatter. Required keys: `name`, `description`. Optional: `tools` (comma-separated allowlist → `pi --tools`), `excludedTools` (comma-separated denylist → `pi --exclude-tools`, pi runner only; the agent gets pi's default tools plus extension/MCP tools, minus the listed exact names; applied after `tools:` if both are set), `model`, `thinking` (pi runner only: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max` → `pi --thinking`; an invalid value or a cursor agent with `thinking:` is skipped), `runner` (`pi` default, or `cursor` for Cursor CLI — see below), `mode` (cursor runner only: `plan` or `ask` for CLI-enforced read-only).
+- **Format:** Markdown with YAML frontmatter. Required keys: `name`, `description`. Optional: `tools` (comma-separated allowlist → `pi --tools`), `excludedTools` (comma-separated denylist → `pi --exclude-tools`, pi runner only; the agent gets pi's default tools plus extension/MCP tools, minus the listed exact names; applied after `tools:` if both are set), `model` (pi runner: `provider/id`, e.g. `anthropic/claude-opus-5-5`; a bare id fails when several authenticated providers offer it), `thinking` (pi runner only: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max` → `pi --thinking`; an invalid value or a cursor agent with `thinking:` is skipped), `runner` (`pi` default, or `cursor` for Cursor CLI — see below), `mode` (cursor runner only: `plan` or `ask` for CLI-enforced read-only).
 
   ```markdown
   ---
   name: my-agent
   description: What this agent does
   tools: read, grep, find, ls
-  model: claude-haiku-4-5
+  model: anthropic/claude-haiku-4-5
   ---
 
   System prompt body.

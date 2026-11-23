@@ -1,7 +1,7 @@
 ---
 name: web-scout
 description: Fast web research recon that returns compressed, cited findings for handoff to other agents
-model: claude-sonnet-5-5
+model: anthropic/claude-sonnet-5-5
 excludedTools: edit, write
 ---
 

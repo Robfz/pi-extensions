@@ -42,7 +42,7 @@ Local additions:
 |---|---|---|---|
 | `web-scout` | Web research recon, returns compressed, cited findings; is instructed to call `web_enable` first; MCP access via `tool_search`; read-only is prompt-level, not enforced | Sonnet 5.5 | read, bash, `tool_search` (+ MCP), `web_enable` (+ web tools) |
 | `figma-scout` | Explore a Figma node URL via the Figma remote MCP (`mcp__figma__*`, loaded with `tool_search`), report implementation-ready specs; read-only and Figma-only are prompt-level, not enforced | Opus 5.5 | read, bash, `tool_search` (+ MCP) |
-| `cross-reviewer` | Cross-model code review from an OpenAI model — independent eyes vs. Anthropic/Cursor authors (`runner: cursor`, `mode: plan`) | GPT-5.6 Sol High | read-only (plan mode) |
+| `cross-reviewer` | Cross-model code review from a Google model via OpenCode Zen — independent eyes vs. Anthropic authors (`thinking: high`) | Gemini 4 Neon | read, grep, find, ls, bash (read-only by prompt) |
 
 Ultraspawn agents (used by `spawn` ultraspawn scripts such as [`../ultraspawns/review.js`](../ultraspawns/review.js) and [`../ultraspawns/implement.js`](../ultraspawns/implement.js); usable as plain agents too):
 
